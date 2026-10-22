@@ -185,7 +185,7 @@ export function App() {
       </aside>
 
       <main>
-        <div className="page-heading"><div><h1>Compare inference routing</h1><p>One workload. Two routing strategies. Follow every request.</p></div><button className="text-button export" disabled={!result || busy || !validTargets(targets)} onClick={download}><Icon name="download" />Export run</button></div>
+        <div className="page-heading"><div><h1>Compare inference routing</h1></div><button className="text-button export" disabled={!result || busy || !validTargets(targets)} onClick={download}><Icon name="download" />Export run</button></div>
         {error && <div className="error" role="alert"><strong>Couldn’t complete the comparison</strong><p>{error}</p></div>}
         <div className="comparison-context"><span className="verified-dot" /><span>{result ? `${workloadPresets[result.config.workload].label} · ${result.fairness.matchedRequests} matched requests · ${result.deployment.model.label} · ${result.config.instances} ${resultHardware} GPUs per side` : 'Matched requests, model, hardware, and engine settings'}</span><span className="synthetic-label">Synthetic workload</span></div>
         {result?.config.workload === 'agents' && <p className="session-note">{result.config.sessions} agents × {result.config.turns} turns. Same starting contexts and token content; each next turn waits for its own response + {result.config.thinkTimeMs} ms. Later arrivals can differ between sides.</p>}
