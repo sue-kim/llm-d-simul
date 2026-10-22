@@ -8,6 +8,8 @@ import (
 )
 
 type PlaybackEvent struct {
+	Phase                string `json:"phase,omitempty"`
+	SubRequestID         string `json:"subRequestId,omitempty"`
 	TimeUs               int64  `json:"timeUs"`
 	RequestID            string `json:"requestId"`
 	Kind                 string `json:"kind"`

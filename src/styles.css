@@ -21,3 +21,19 @@
 @media(max-width:850px){.settings .workload-note,.settings .context-error{grid-column:1/-1}}
 .preset-options button span{text-align:left}
 @media(max-width:850px){.settings fieldset>.field,.settings fieldset>.field-help{grid-column:1/-1}}
+
+/* Disaggregation keeps the total budget visible across both routing strategies. */
+.pool-settings{min-width:0}.pool-budget{padding:10px 11px;margin:-2px 0 16px;background:#edf4f0;border:1px solid #d3e2d9;border-radius:5px;font-size:11px;line-height:1.7}.pool-budget b{font-weight:500}
+.pool-heading{display:flex;justify-content:space-between;gap:10px;align-items:center;margin:18px 18px 10px}.pool-heading h3{font-size:12px;font-weight:500}.pool-heading span{font-size:10px;color:var(--muted)}
+.instances.single{grid-template-columns:1fr}.cluster-budget{margin:16px 18px 0;font-size:11px;color:var(--muted)}.cluster-budget b{color:var(--ink);font-weight:500}.cluster-summary{flex-wrap:wrap;gap:10px 20px}
+.transfer-lane{margin:17px 18px 0;border:1px dashed #b8c9c1;border-radius:5px;background:#f7faf7;padding:12px}.transfer-lane.has-transfers{border-style:solid;border-color:#b5c8be;background:#eff5f0}
+.transfer-heading,.transfer-footer{display:flex;justify-content:space-between;align-items:center;gap:8px}.transfer-heading strong{font-size:12px;font-weight:500;color:var(--policy)}.transfer-heading>span{font-size:10px;color:var(--muted);font-variant-numeric:tabular-nums}
+.transfer-track{min-height:44px;padding:9px 0;display:flex;gap:6px;flex-wrap:wrap;align-items:center}.transfer-token{position:relative;overflow:hidden;justify-content:space-between;gap:12px;padding:7px 9px 10px;background:white;border:1px solid #cedbd2;border-radius:4px;font-size:10px;min-width:130px;flex:1}.transfer-token span{overflow-wrap:anywhere;text-align:left}.transfer-token small{font-size:9px;color:var(--muted);white-space:nowrap}.transfer-token i{position:absolute;bottom:0;left:0;height:3px;background:var(--policy)}.transfer-token.selected{border-color:var(--policy)}
+.transfer-empty,.transfer-more{font-size:10px;color:var(--muted)}.transfer-footer{font-size:9px;color:var(--muted)}.transfer-footer button,.inspect-transfer{font-size:10px;border:0;background:transparent;color:var(--policy,var(--llmd));padding:3px 0;text-align:left}.transfer-footer button:hover:not(:disabled),.inspect-transfer:hover{text-decoration:underline}.transfer-footer button:disabled{opacity:.45}.transfer-footer>span{min-width:0}.inspect-transfer{line-height:1.5}
+.stage.transferring,.stage.kv_transferred{color:#277261}.stage.prefilling,.stage.decoding{color:#35698d}.stage.kv_wait{color:#866127}.stage.dropped{color:#9f3d3d}.request-rows .stage.kv_wait{white-space:normal}
+@media(max-width:1180px){.pool-heading{margin-left:12px;margin-right:12px;align-items:flex-start;flex-direction:column;gap:3px}.transfer-lane{margin-left:12px;margin-right:12px;padding:9px}.transfer-heading,.transfer-footer{align-items:flex-start;flex-direction:column;gap:5px}.cluster-budget{margin-left:12px;margin-right:12px}}
+@media(max-width:850px){.pool-settings{grid-column:1/-1}}
+@media(max-width:580px){.pool-heading{flex-direction:row;margin-left:16px;margin-right:16px}.transfer-heading,.transfer-footer{flex-direction:row}.transfer-lane{margin-left:16px;margin-right:16px}.cluster-budget{margin-left:16px;margin-right:16px}}
+.transfer-request{display:flex;flex-direction:column;gap:4px}.transfer-request b{font-weight:500}.transfer-request em{font-size:9px;color:var(--muted);font-style:normal}
+/* Keep the decode pools aligned as transfer counts change during playback. */
+.transfer-lane{height:185px;display:flex;flex-direction:column}.transfer-track{flex:1;min-height:0;overflow-y:auto;align-content:flex-start}.transfer-footer{flex-shrink:0}

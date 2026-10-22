@@ -54,5 +54,22 @@
       "shortLabel": "H200",
       "memoryGiB": 139.80072021
     }
+  ],
+  "networks": [
+    {
+      "id": "ib-400g",
+      "label": "InfiniBand 400 Gb/s",
+      "bandwidthGBps": 50.0
+    },
+    {
+      "id": "roce-200g",
+      "label": "RoCE 200 Gb/s",
+      "bandwidthGBps": 25.0
+    },
+    {
+      "id": "ethernet-100gbe",
+      "label": "Ethernet 100 Gb/s",
+      "bandwidthGBps": 12.5
+    }
   ]
 }

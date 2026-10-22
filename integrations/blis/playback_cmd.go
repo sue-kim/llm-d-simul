@@ -13,6 +13,9 @@ import (
 )
 
 type playbackExport struct {
+	Pools     map[string]string      `json:"pools"`
+	Transfers []playbackTransfer     `json:"transfers"`
+	RawEvents []sim.PlaybackEvent    `json:"rawEvents,omitempty"`
 	Events    []sim.PlaybackEvent    `json:"events"`
 	Snapshots []sim.ProgressSnapshot `json:"snapshots"`
 	Decisions *trace.SimulationTrace `json:"decisions"`
@@ -68,6 +71,7 @@ func finishPlayback(cs *cluster.ClusterSimulator) {
 			playback.Events = append(playback.Events, e)
 		}
 	}
+	normalizePDPlayback(cs)
 	sort.SliceStable(playback.Events, func(i, j int) bool { return playback.Events[i].TimeUs < playback.Events[j].TimeUs })
 	// A zero-duration routing decision belongs after its arrival but before any
 	// endpoint events at that instant. Other equal-time event ordering is retained.
@@ -76,7 +80,11 @@ func finishPlayback(cs *cluster.ClusterSimulator) {
 		for j < len(playback.Events) && playback.Events[j].TimeUs == playback.Events[i].TimeUs {
 			j++
 		}
-		priority := func(kind string) int {
+		priority := func(e sim.PlaybackEvent) int {
+			kind := e.Kind
+			if len(playback.Pools) > 0 {
+				return pdEventPriority(e)
+			}
 			if kind == "arrived" {
 				return 0
 			}
@@ -85,7 +93,7 @@ func finishPlayback(cs *cluster.ClusterSimulator) {
 			}
 			return 2
 		}
-		sort.SliceStable(playback.Events[i:j], func(a, b int) bool { return priority(playback.Events[i+a].Kind) < priority(playback.Events[i+b].Kind) })
+		sort.SliceStable(playback.Events[i:j], func(a, b int) bool { return priority(playback.Events[i+a]) < priority(playback.Events[i+b]) })
 		i = j
 	}
 	data, err := json.Marshal(playback)

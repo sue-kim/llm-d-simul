@@ -43,8 +43,12 @@ patch("sim/simulator.go", [
 patch("sim/batch_formation.go", [
     ("\t\t\tpreemptedRequest.State = StateQueued", "\t\t\tpreemptedRequest.State = StateQueued\n\t\t\tObservePlayback(preemptedRequest, \"preempted\", ctx.Now)"),
 ])
+patch("sim/cluster/cluster.go", [
+    ("// (blis replay passes onRequestDone=nil, so this code never runs in replay mode.)\n\t\t\torigCopy.ProgressIndex = parent.DecodeSubReq.ProgressIndex", "// (blis replay passes onRequestDone=nil, so this code never runs in replay mode.)\n\t\t\torigCopy.ProgressIndex = parent.DecodeSubReq.ProgressIndex\n\t\t\tsim.ObservePlaybackRetainedContext(&origCopy)"),
+])
 for name, destination in [("playback_sim.go", "sim"), ("playback_cmd.go", "cmd")]:
     shutil.copyfile(ROOT / "integrations/blis" / name, SOURCE / destination / "playback_export.go")
+shutil.copyfile(ROOT / "integrations/blis/playback_pd.go", SOURCE / "cmd/playback_pd.go")
 
 (ROOT / ".runtime/bin").mkdir(exist_ok=True)
 subprocess.run(["sh", str(ROOT / "scripts/go.sh"), "build", "-p", "4", "-o", str(ROOT / ".runtime/bin/blis"), "."], cwd=SOURCE, check=True)

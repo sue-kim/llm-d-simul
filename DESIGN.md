@@ -19,3 +19,7 @@ Request markers represent recorded requests. Playback changes the observation ti
 ## Agent workloads
 
 Four workload presets share the same controls. Agent selection replaces request-rate controls with session count, turns, pause, and start delay. The comparison explains why later arrivals can differ. The inspector pairs agent/turn identities, provides turn navigation, and separates retained context, new input, and output tokens. Full-run session duration includes pauses; the two policy clocks stay synchronized.
+
+## Separate prefill/decode pools
+
+Keep one total GPU budget, split, and network control shared by both strategies. Group instance cards by prefill and decode with an intervening KV-transfer lane. Show in-transit and delivered counts, actual transfer progress, and a direct action to pause inside a transfer. Keep the sum of both pools visible on each side. Queue and finished counts describe parent requests; inspect both assignments, per-pool waits, capacity wait, and blocks pulled without exposing child IDs as extra user requests. Raw child records remain available in the export.

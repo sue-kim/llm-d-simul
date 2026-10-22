@@ -27,6 +27,12 @@ type HardwareOption struct {
 	MemoryGiB  float64 `json:"memoryGiB"`
 }
 
+type NetworkOption struct {
+	ID            string  `json:"id"`
+	Label         string  `json:"label"`
+	BandwidthGBps float64 `json:"bandwidthGBps"`
+}
+
 type DeploymentOptions struct {
 	CatalogCommit   string           `json:"catalogCommit"`
 	Precision       string           `json:"precision"`
@@ -34,6 +40,7 @@ type DeploymentOptions struct {
 	GPUsPerInstance int              `json:"gpusPerInstance"`
 	Models          []ModelOption    `json:"models"`
 	Hardware        []HardwareOption `json:"hardware"`
+	Networks        []NetworkOption  `json:"networks"`
 }
 
 type Deployment struct {

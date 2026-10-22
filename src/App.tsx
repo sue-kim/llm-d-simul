@@ -1,17 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Comparison, Config, DeploymentOptions, Event, Side, Stage } from './types';
+import type { Comparison, Config, DeploymentOptions, Event, Side, Stage, Transfer } from './types';
 import { formatMs, formatNumber, requestKey, requestLabel, requestStates, sessionDurations, snapshotAt } from './playback';
 
-const defaults: Config = { workload: 'chat', model: 'llama-3.1-8b-instruct', hardware: 'h100', instances: 4, requests: 256, rate: 40, inputTokens: 256, outputTokens: 256, prefixTokens: 512, seed: 42, sessions: 16, turns: 4, thinkTimeMs: 500, meanStartMs: 1000 };
+const defaults: Config = { workload: 'chat', model: 'llama-3.1-8b-instruct', hardware: 'h100', instances: 4, disaggregated: false, prefillInstances: 2, fabric: 'ib-400g', requests: 256, rate: 40, inputTokens: 256, outputTokens: 256, prefixTokens: 512, seed: 42, sessions: 16, turns: 4, thinkTimeMs: 500, meanStartMs: 1000 };
 const workloadPresets = {
   chat: {label: 'Chat', description: 'Short prompts, streaming replies', inputTokens: 256, outputTokens: 256, prefixTokens: 512, requests: 256, rate: 40},
   summarization: {label: 'Summarization', description: 'Long documents, shorter answers', inputTokens: 4096, outputTokens: 512, prefixTokens: 0, requests: 256, rate: 40},
   code: {label: 'Code generation', description: 'Repository context, long outputs', inputTokens: 1024, outputTokens: 2048, prefixTokens: 2048, requests: 64, rate: 12},
   agents: {label: 'Multi-turn agents', description: 'Repeated context, sequential turns', inputTokens: 256, outputTokens: 256, prefixTokens: 1024, requests: 64, rate: 16},
 };
-const stageLabel: Record<Stage, string> = { arrived: 'Arrived', routed: 'Preparing input', queued: 'Queued', processing: 'Processing', streaming: 'Streaming', completed: 'Finished', preempted: 'Queued again', timed_out: 'Timed out' };
-const active = (e: Event) => e.kind === 'processing' || e.kind === 'streaming';
-const waiting = (e: Event) => e.kind === 'queued' || e.kind === 'preempted';
+const stageLabel: Record<Stage, string> = { arrived: 'Arrived', routed: 'Preparing input', queued: 'Queued', processing: 'Processing', streaming: 'Streaming', completed: 'Finished', preempted: 'Queued again', timed_out: 'Timed out', prefilling: 'Prefilling', kv_wait: 'Waiting for KV space', transferring: 'KV in transit', kv_transferred: 'KV received', decoding: 'Decoding', dropped: 'Dropped' };
+const eventLabel = (e: Event) => e.kind === 'queued' && e.phase ? `${e.phase === 'prefill' ? 'Prefill' : 'Decode'} queue` : stageLabel[e.kind];
+const instanceLabel = (id: string) => `Instance ${Number(id.match(/\d+$/)?.[0] ?? 0) + 1}`;
+const active = (e: Event) => ['processing', 'streaming', 'prefilling', 'decoding'].includes(e.kind);
+const waiting = (e: Event) => ['queued', 'preempted', 'kv_wait'].includes(e.kind);
 
 function Icon({ name, size = 18 }: { name: 'play' | 'pause' | 'reset' | 'step' | 'arrow' | 'download' | 'chip' | 'route'; size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -40,12 +42,14 @@ export function App() {
   const [search, setSearch] = useState('');
   const requestController = useRef<AbortController | null>(null);
   const end = result?.endTimeUs ?? 1;
-  const changed = !!result && JSON.stringify(config) !== JSON.stringify(result.config);
+  const changed = !!result && (Object.keys(config) as (keyof Config)[]).some(key => config[key] !== result.config[key]);
   const agents = config.workload === 'agents';
   const contextBudget = config.prefixTokens + 2 * config.turns * (config.inputTokens + config.outputTokens);
   const contextError = agents && contextBudget > (deployments?.contextLimit ?? 32768);
   const selectedModel = deployments?.models.find(model => model.id === config.model);
   const selectedHardware = deployments?.hardware.find(hardware => hardware.id === config.hardware);
+  const viewConfig = result?.config ?? config;
+  const networkLabel = deployments?.networks.find(n => n.id === viewConfig.fabric)?.label ?? viewConfig.fabric;
   const resultHardware = result ? result.deployment?.hardware.shortLabel ?? result.config.hardware : selectedHardware?.shortLabel ?? 'GPU';
 
   useEffect(() => {
@@ -95,6 +99,12 @@ export function App() {
   function preset(workload: Config['workload']) {
     const {inputTokens, outputTokens, prefixTokens, requests, rate} = workloadPresets[workload];
     setConfig(c => ({...c, workload, inputTokens, outputTokens, prefixTokens, requests, rate, sessions: 16, turns: 4, thinkTimeMs: 500, meanStartMs: 1000}));
+  }
+  function inspectTransfer(side: Side, transfer: Transfer) {
+    const request = side.playback.events.find(e => e.kind === 'arrived' && e.requestId === transfer.requestId);
+    if (request) setSelected(requestKey(request));
+    setTime(transfer.startUs + (transfer.endUs - transfer.startUs) / 2);
+    setPlaying(false);
   }
   function download() {
     if (!result) return;
@@ -150,8 +160,17 @@ export function App() {
               <label className="field">GPU<select value={config.hardware} onChange={e => update('hardware', e.target.value)}>{deployments ? deployments.hardware.map(hardware => <option key={hardware.id} value={hardware.id} disabled={!selectedModel?.hardwareIds.includes(hardware.id)}>{hardware.label}</option>) : <option value={config.hardware}>Loading GPUs…</option>}</select></label>
               <p className="field-help">{selectedHardware ? `${selectedHardware.memoryGiB.toFixed(2)} GiB modeled memory · one GPU per instance` : 'Loading GPU settings…'}</p>
             </div>
-            <label className="field">Instances<select value={config.instances} onChange={e => update('instances', +e.target.value)}>{[2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n} instances · {n} GPUs</option>)}</select></label>
+            <label className="field">Total GPU budget / side<select value={config.instances} onChange={e => setConfig(c => ({...c, instances: +e.target.value, prefillInstances: Math.min(c.prefillInstances, +e.target.value - 1)}))}>{[2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n} instances · {n} GPUs</option>)}</select></label>
             <p className="field-help">{config.instances} × {selectedHardware?.shortLabel ?? 'GPU'} per side. Same model, precision, and GPU count.</p>
+            <div className="pool-settings">
+              <label className="field">Processing layout<select value={config.disaggregated ? 'separate' : 'combined'} onChange={e => update('disaggregated', e.target.value === 'separate')}><option value="combined">Combined prefill + decode</option><option value="separate">Separate prefill / decode pools</option></select></label>
+              {config.disaggregated && <>
+                <label className="field">Prefill allocation<select value={config.prefillInstances} onChange={e => update('prefillInstances', +e.target.value)}>{Array.from({length: config.instances - 1}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} prefill · {config.instances - n} decode</option>)}</select></label>
+                <p className="pool-budget"><b>{config.prefillInstances}</b> prefill + <b>{config.instances - config.prefillInstances}</b> decode = <b>{config.instances} GPUs</b> per side</p>
+                <label className="field">KV transfer network<select value={config.fabric} onChange={e => update('fabric', e.target.value)}>{deployments?.networks.map(n => <option key={n.id} value={n.id}>{n.label}</option>)}</select></label>
+                <p className="field-help">One GPU per node. Both sides use the same pool split and network; simultaneous KV transfers share bandwidth.</p>
+              </>}
+            </div>
             <button className="run-button" type="submit" disabled={!ready || busy || contextError}>{busy ? <span className="spinner" /> : <Icon name="play" />} {busy ? 'Running BLIS…' : 'Run comparison'}</button>
             <p className="run-note">Runs locally on your CPU. No GPUs required.</p>
           </fieldset>
@@ -163,11 +182,12 @@ export function App() {
         {error && <div className="error" role="alert"><strong>Couldn’t complete the comparison</strong><p>{error}</p></div>}
         <div className="comparison-context"><span className="verified-dot" /><span>{result ? `${workloadPresets[result.config.workload].label} · ${result.fairness.matchedRequests} matched requests · ${result.deployment.model.label} · ${result.config.instances} ${resultHardware} GPUs per side` : 'Matched requests, model, hardware, and engine settings'}</span><span className="synthetic-label">Synthetic workload</span></div>
         {result?.config.workload === 'agents' && <p className="session-note">{result.config.sessions} agents × {result.config.turns} turns. Same starting contexts and token content; each next turn waits for its own response + {result.config.thinkTimeMs} ms. Later arrivals can differ between sides.</p>}
+        {viewConfig.disaggregated && <p className="session-note">Separate pools · {viewConfig.prefillInstances} prefill + {viewConfig.instances - viewConfig.prefillInstances} decode = {viewConfig.instances} GPUs on each side · {networkLabel}. Both strategies route within the same pool layout.</p>}
         {changed && <p className="changed-note" role="status">Settings changed. Run again to update the comparison below.</p>}
         {busy && <div className="busy-note" role="status"><span className="spinner" /><span>Computing both BLIS runs. Playback will be ready when they finish.</span></div>}
         <section className="comparison" aria-label="Side-by-side simulation">
-          <Cluster title="Basic load balancing" description="Random endpoint selection" variant="basic" side={result?.basic} instances={result?.config.instances ?? config.instances} hardware={resultHardware} states={states.basic} time={time} selected={selected} onSelect={setSelected} />
-          <Cluster title="llm-d routing" description="In-flight load, queue, and cache scoring" variant="llmd" side={result?.llmd} instances={result?.config.instances ?? config.instances} hardware={resultHardware} states={states.llmd} time={time} selected={selected} onSelect={setSelected} />
+          <Cluster title="Basic load balancing" description={viewConfig.disaggregated ? 'Random selection within each pool' : 'Random endpoint selection'} variant="basic" side={result?.basic} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.basic} time={time} selected={selected} onSelect={setSelected} />
+          <Cluster title="llm-d routing" description={viewConfig.disaggregated ? 'Prefix cache and queue scoring' : 'In-flight load, queue, and cache scoring'} variant="llmd" side={result?.llmd} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.llmd} time={time} selected={selected} onSelect={setSelected} />
         </section>
         <div className="playback-controls" aria-label="Simulation playback">
           <button className="play-button" aria-label={playing ? 'Pause playback' : 'Play playback'} disabled={!result || busy} onClick={() => { if (time >= end) setTime(0); setPlaying(!playing); }}><Icon name={playing ? 'pause' : 'play'} /></button>
@@ -197,15 +217,16 @@ export function App() {
                 <nav className="turn-navigation" aria-label="Session turns">{sessionTurns.map(e => <button key={requestKey(e)} aria-pressed={requestKey(e) === selected} onClick={() => setSelected(requestKey(e))}>Turn {e.roundIndex + 1}</button>)}</nav>
                 <div className="context-breakdown"><span><b>{(selectedEvent.historyTokens ?? 0).toLocaleString()}</b> {selectedEvent.roundIndex === 0 ? 'initial context' : 'retained context'}</span><span>+ <b>{(selectedEvent.inputTokens - (selectedEvent.historyTokens ?? 0)).toLocaleString()}</b> new input</span><span>→ <b>{selectedEvent.outputTokens.toLocaleString()}</b> output tokens</span></div>
               </>}
-              <div className="detail-sides"><RequestDetail side={result.basic} requestId={selected} current={states.basic.get(selected)} time={time} /><RequestDetail side={result.llmd} requestId={selected} current={states.llmd.get(selected)} time={time} /></div>
+              <div className="detail-sides"><RequestDetail side={result.basic} requestId={selected} current={states.basic.get(selected)} time={time} onTransfer={inspectTransfer} /><RequestDetail side={result.llmd} requestId={selected} current={states.llmd.get(selected)} time={time} onTransfer={inspectTransfer} /></div>
             </> : <div className="inspector-empty"><Icon name="route" size={30} /><h3>See what a request waited for.</h3><p>Inspect its recorded queue time, assigned instance, and routing decision in both runs.</p></div>}</div>
           </div>
         </section>
         <details className="methodology"><summary>How this comparison works <span>BLIS v0.12.0</span></summary><div>
-          <p>Basic routing uses random selection; llm-d uses the upstream in-flight load configuration. Both execute inside BLIS’s embedded llm-d router, with the same engine settings and cold caches. These are simulated policy results, with zero router decision time.</p>
+          <p>Basic routing uses random selection. With combined instances, llm-d uses the upstream in-flight load configuration. With separate pools, it uses the upstream disaggregation configuration: prefix-cache score (weight 2) and queue score (weight 1). Both execute inside BLIS’s embedded llm-d router, with the same engine settings and cold caches. These are simulated policy results, with zero router decision time.</p>
           <p>Input and output lengths use bounded synthetic distributions with 25% standard deviation. Shared context is added to each input. Chat, summarization, and code generation are editable synthetic examples using BLIS workload distributions. Code generation emphasizes long output sequences; no real code is executed or evaluated.</p>
-          <p>Multi-turn agents use BLIS closed-loop sessions. Each session has its own initial context, accumulates prior input and output context, and waits for the prior engine completion plus the configured pause. Session starts and token hashes match across policies; later arrival times respond to each policy’s performance. The pinned BLIS session manager retains one fewer output token per turn than its generated-token metric; the inspector shows the actual retained amount. Pauses stand in for work between model calls; tool execution, branching, and reasoning quality are not modeled. Configurations that could exceed the engine context limit are refused.</p>
+          <p>Multi-turn agents use BLIS closed-loop sessions. Each session has its own initial context, accumulates prior input and output context, and waits for the prior completion plus the configured pause (engine completion for combined instances; parent response completion for separate pools). Session starts and token hashes match across policies; later arrival times respond to each policy’s performance. The pinned BLIS session manager retains one fewer output token per turn than its generated-token metric; the inspector shows the actual retained amount. Pauses stand in for work between model calls; tool execution, branching, and reasoning quality are not modeled. Configurations that could exceed the engine context limit are refused.</p>
           <p>Model and GPU options come from the pinned BLIS catalog and have been exercised in this simulator. All use BF16 weights and KV cache, one GPU per instance, and a 32,768-token engine limit. GPU memory values follow the catalog’s modeled capacity in GiB. These checks establish compatibility; accuracy depends on BLIS’s coefficient coverage for the selected deployment.</p>
+          <p>Separate pools divide the total GPU budget; they do not add GPUs. Both sides use the same split, one GPU per node, and the selected catalog network. BLIS prices KV pulls with NixlConnector and network contention enabled. Catalog network bandwidth is a nominal specification, not a measured deployment rate. Transfer markers follow recorded times, including decode cache reuse and waiting for KV space. The inspector reports the parent response and counts each request once; raw child events remain in the export.</p>
           <p>Request transitions are recorded from the engine. Gauges use snapshots approximately every 50 ms. “Processing” includes prompt processing; “streaming” begins at the recorded first token. Full run metrics remain fixed while you replay.</p>
           {result && <><p>Run <code>{result.id}</code> · Seed {result.config.seed} · {result.fairness.mode === 'matched-sessions' ? 'Matched sessions, token content, and context continuity verified.' : 'Identical arrivals and token content verified.'}</p><dl className="pins">{Object.entries(result.provenance.repositories).map(([name,pin]) => <div key={name}><dt>{name}</dt><dd><a target="_blank" rel="noreferrer" href={`https://github.com/inference-sim/${name}/commit/${pin.commit}`}>{pin.tag} · {pin.commit.slice(0,12)}</a></dd></div>)}</dl><p>Kernel inputs include measured, vendor-specified, and assumed coefficients. Full provenance and raw decisions are included in the exported run.</p></>}
           <a href="https://github.com/inference-sim/inference-sim/blob/v0.12.0/docs/guide/routing.md" target="_blank" rel="noreferrer">Read the BLIS routing methodology ↗</a>
@@ -219,34 +240,60 @@ export function App() {
 function NumberField({ label, value, min, max, onChange }: {label: string; value: number; min: number; max: number; onChange: (n: number) => void}) {
   return <label className="field">{label}<input type="number" required value={value} min={min} max={max} step="1" onChange={e => onChange(e.target.value === '' ? 0 : +e.target.value)} /></label>;
 }
-function StageTag({event}: {event?: Event}) { return <span className={`stage ${event?.kind ?? 'pending'}`}>{event ? stageLabel[event.kind] : 'Not arrived'}</span>; }
+function StageTag({event}: {event?: Event}) { return <span className={`stage ${event?.kind ?? 'pending'}`}>{event ? eventLabel(event) : 'Not arrived'}</span>; }
 
-function Cluster({title,description,variant,side,instances,hardware,states,time,selected,onSelect}: {title:string;description:string;variant:string;side?:Side;instances:number;hardware:string;states:Map<string,Event>;time:number;selected:string;onSelect:(id:string)=>void}) {
+function Cluster({title,description,variant,side,config,network,hardware,states,time,selected,onSelect,onTransfer}: {title:string;description:string;variant:string;side?:Side;config:Config;network:string;hardware:string;states:Map<string,Event>;time:number;selected:string;onSelect:(id:string)=>void;onTransfer:(side:Side,transfer:Transfer)=>void}) {
   const snap = snapshotAt(side,time);
   const current = [...states.values()];
   const finished = current.filter(e => e.kind === 'completed').length;
   const queued = current.filter(waiting).length;
   const running = current.filter(active).length;
-  const ids = side?.playback.snapshots.at(-1)?.InstanceSnapshots.map(s=>s.ID) ?? Array.from({length:instances},(_,i)=>`instance_${i}`);
+  const ids = side?.playback.snapshots.at(-1)?.InstanceSnapshots.map(s=>s.ID) ?? Array.from({length:config.instances},(_,i)=>`instance_${i}`);
+  const role = (id: string) => side?.playback.pools?.[id] ?? (ids.indexOf(id) < config.prefillInstances ? 'prefill' : 'decode');
+  const renderInstances = (poolIds: string[]) => <div className={`instances ${poolIds.length === 1 ? 'single' : ''}`}>{poolIds.map(id=>{
+    const events=current.filter(e=>e.instanceId===id);
+    const q=events.filter(waiting), inFlight=events.filter(active);
+    const s=snap?.InstanceSnapshots.find(s=>s.ID===id);
+    const tokens=[...q,...inFlight];
+    return <div className={`instance ${tokens.some(e=>requestKey(e)===selected) ? 'has-selection' : ''}`} key={id}>
+      <div className="instance-heading"><Icon name="chip" size={17}/><strong>{instanceLabel(id)}</strong><span className={inFlight.length ? 'instance-active' : ''}>{inFlight.length ? 'Active' : 'Idle'}</span></div>
+      <div className="instance-counts"><span><b>{q.length}</b> waiting</span><span><b>{inFlight.length}</b> running</span></div>
+      <div className="request-dots" aria-label={`Requests on ${instanceLabel(id)}`}>{tokens.slice(0,30).map(e=><button key={e.requestId} className={`${waiting(e)?'dot-queued':'dot-active'} ${requestKey(e)===selected?'dot-selected':''}`} aria-label={`${requestLabel(e)}, ${eventLabel(e)}`} title={`${requestLabel(e)} · ${eventLabel(e)}`} onClick={()=>onSelect(requestKey(e))}/>)}{tokens.length>30&&<span className="more-dots">+{tokens.length-30}</span>}{!tokens.length&&<span className="no-requests">{side ? 'No active requests' : 'Ready for requests'}</span>}</div>
+      <div className="cache-label"><span>KV cache</span><span>{((s?.KVUtilization??0)*100).toFixed(1)}%</span></div><div className="cache-meter"><span style={{width:`${Math.min(100,(s?.KVUtilization??0)*100)}%`}} /></div>
+    </div>;
+  })}</div>;
   return <article className={`cluster ${variant}`}>
-    <div className="cluster-title"><span className="policy-indicator" /><div><h2>{title}</h2><p>{description}</p></div><span className="gpu-count">{instances} × {hardware}</span></div>
-    <div className="cluster-summary"><span><strong>{queued}</strong> queued</span><span><strong>{running}</strong> processing</span><span><strong>{finished}</strong> finished</span></div>
+    <div className="cluster-title"><span className="policy-indicator" /><div><h2>{title}</h2><p>{description}</p></div><span className="gpu-count">{config.instances} × {hardware}</span></div>
+    <div className="cluster-summary"><span><strong>{queued}</strong> waiting</span><span><strong>{running}</strong> processing</span><span><strong>{finished}</strong> finished</span></div>
     <div className="router"><Icon name="route" /><span>{variant === 'basic' ? 'Random picker' : 'llm-d endpoint picker'}</span><small>{states.size} received</small></div>
-    <div className="routing-lines" aria-hidden="true"><span /><span /></div>
-    <div className={`instances ${instances > 4 ? 'many' : ''}`}>{ids.map((id,index)=>{
-      const events=current.filter(e=>e.instanceId===id);
-      const q=events.filter(waiting), inFlight=events.filter(active);
-      const s=snap?.InstanceSnapshots.find(s=>s.ID===id);
-      const tokens=[...q,...inFlight];
-      return <div className={`instance ${tokens.some(e=>requestKey(e)===selected) ? 'has-selection' : ''}`} key={id}>
-        <div className="instance-heading"><Icon name="chip" size={17}/><strong>Instance {index+1}</strong><span className={inFlight.length ? 'instance-active' : ''}>{inFlight.length ? 'Active' : 'Idle'}</span></div>
-        <div className="instance-counts"><span><b>{q.length}</b> queued</span><span><b>{inFlight.length}</b> running</span></div>
-        <div className="request-dots" aria-label={`Requests on instance ${index+1}`}>{tokens.slice(0,30).map(e=><button key={e.requestId} className={`${waiting(e)?'dot-queued':'dot-active'} ${requestKey(e)===selected?'dot-selected':''}`} aria-label={`${requestLabel(e)}, ${stageLabel[e.kind]}`} title={`${requestLabel(e)} · ${stageLabel[e.kind]}`} onClick={()=>onSelect(requestKey(e))}/>)}{tokens.length>30&&<span className="more-dots">+{tokens.length-30}</span>}{!tokens.length&&<span className="no-requests">{side ? 'No active requests' : 'Ready for requests'}</span>}</div>
-        <div className="cache-label"><span>KV cache</span><span>{((s?.KVUtilization??0)*100).toFixed(1)}%</span></div><div className="cache-meter"><span style={{width:`${Math.min(100,(s?.KVUtilization??0)*100)}%`}} /></div>
-      </div>;
-    })}</div>
-    <div className="cluster-legend"><span><i className="dot-queued" />Queued</span><span><i className="dot-active" />Processing / streaming</span><small>One square = one request</small></div>
+    {config.disaggregated ? <>
+      <div className="pool-heading"><h3>Prefill pool</h3><span>{config.prefillInstances} GPUs · process input</span></div>
+      {renderInstances(ids.filter(id => role(id) === 'prefill'))}
+      <TransferLane side={side} time={time} network={network} selected={selected} onSelect={onSelect} onTransfer={onTransfer}/>
+      <div className="pool-heading"><h3>Decode pool</h3><span>{config.instances-config.prefillInstances} GPUs · generate output</span></div>
+      {renderInstances(ids.filter(id => role(id) === 'decode'))}
+      <p className="cluster-budget">{config.prefillInstances} prefill + {config.instances-config.prefillInstances} decode = <b>{config.instances} × {hardware}</b></p>
+    </> : <><div className="routing-lines" aria-hidden="true"><span /><span /></div>{renderInstances(ids)}</>}
+    <div className="cluster-legend"><span><i className="dot-queued" />Waiting</span><span><i className="dot-active" />Processing / streaming</span><small>One square = one request</small></div>
   </article>;
+}
+
+function TransferLane({side,time,network,selected,onSelect,onTransfer}: {side?:Side;time:number;network:string;selected:string;onSelect:(id:string)=>void;onTransfer:(side:Side,transfer:Transfer)=>void}) {
+  const transfers = side?.playback.transfers ?? [];
+  const inTransit = transfers.filter(t => t.startUs <= time && time < t.endUs);
+  const next = transfers.find(t => t.startUs > time) ?? transfers[0];
+  const completed = transfers.filter(t => t.endUs <= time).length;
+  return <div className={`transfer-lane ${inTransit.length ? 'has-transfers' : ''}`}>
+    <div className="transfer-heading"><strong>↓ KV transfer</strong><span>{inTransit.length} in transit · {completed} delivered</span></div>
+    <div className="transfer-track" aria-label="KV transfers in progress">{inTransit.slice(0,4).map(t=>{
+      const request=side?.playback.events.find(e=>e.kind==='arrived' && e.requestId===t.requestId);
+      const progress=(time-t.startUs)/(t.endUs-t.startUs)*100;
+      return <button key={t.requestId} className={`transfer-token ${request && requestKey(request)===selected?'selected':''}`} onClick={()=>request && onSelect(requestKey(request))} title={`${instanceLabel(t.prefillInstanceId)} → ${instanceLabel(t.decodeInstanceId)} · ${t.pulledBlocks} KV blocks`}>
+        <span className="transfer-request"><b>{request?requestLabel(request):t.requestId}</b><em>{instanceLabel(t.prefillInstanceId)} → {instanceLabel(t.decodeInstanceId)} · {t.pulledBlocks} blocks</em></span><small>{formatMs((t.endUs-t.startUs)/1000)}</small><i style={{width:`${progress}%`}}/>
+      </button>;
+    })}{inTransit.length>4&&<span className="transfer-more">+{inTransit.length-4} transfers</span>}{!inTransit.length&&<span className="transfer-empty">{transfers.length && completed===transfers.length?'All KV transfers delivered':'KV moves here after prefill'}</span>}</div>
+    <div className="transfer-footer"><span>{network}</span><button type="button" disabled={!side || !next} onClick={()=>side && next && onTransfer(side,next)}>{next && next.startUs<=time?'Replay first transfer':'Inspect next transfer'} <span aria-hidden="true">↗</span></button></div>
+  </div>;
 }
 
 function Results({result}: {result?:Comparison}) {
@@ -259,6 +306,12 @@ function Results({result}: {result?:Comparison}) {
     {label:'Output throughput',a:basic?basic.total_output_tokens/seconds:undefined,b:llmd?llmd.total_output_tokens/seconds:undefined,format:n=>n==null?'—':`${formatNumber(n)} tok/s`},
     {label:'Prefix cache hit rate',a:basic?.cache_hit_rate,b:llmd?.cache_hit_rate,format:n=>n==null?'—':`${(n*100).toFixed(1)}%`},
   ];
+  if (result?.config.disaggregated) {
+    rows.push(
+      {label: 'KV transfer time · median', a: basic?.pd?.transfer_time_p50_ms, b: llmd?.pd?.transfer_time_p50_ms, format: formatMs, lower: true},
+      {label: 'KV transfer contention delay · p90', a: basic?.pd?.transfer_queue_delay_p90_ms, b: llmd?.pd?.transfer_queue_delay_p90_ms, format: formatMs, lower: true},
+    );
+  }
   if (result?.config.workload === 'agents') {
     const p95 = (side: Side) => {
       const durations = [...sessionDurations(side).values()].filter(s => s.turns === result.config.turns).map(s => s.end-s.start).sort((a,b) => a-b);
@@ -273,17 +326,37 @@ function Results({result}: {result?:Comparison}) {
   })}<tr><th>Requests finished / received</th><td>{basic?`${basic.completed_requests} / ${basic.injected_requests}`:'—'}</td><td>{llmd?`${llmd.completed_requests} / ${llmd.injected_requests}`:'—'}</td><td>{result?'All outcomes included':'—'}</td></tr><tr><th>Failed / unfinished</th><td>{basic?`${basic.failed_requests??0} / ${(basic.still_queued??0)+(basic.still_running??0)}`:'—'}</td><td>{llmd?`${llmd.failed_requests??0} / ${(llmd.still_queued??0)+(llmd.still_running??0)}`:'—'}</td><td>Lower is better</td></tr></tbody></table></div>;
 }
 
-function RequestDetail({side,requestId,current,time}: {side:Side;requestId:string;current?:Event;time:number}) {
+function RequestDetail({side,requestId,current,time,onTransfer}: {side:Side;requestId:string;current?:Event;time:number;onTransfer:(side:Side,transfer:Transfer)=>void}) {
   const request = side.playback.events.find(e => e.kind === 'arrived' && requestKey(e) === requestId);
   const rawId = request?.requestId;
   const metric=side.metrics.requests?.find(r=>r.requestID===rawId);
   const routing=side.playback.decisions.Routings?.find(r=>r.RequestID===rawId);
   const events=side.playback.events.filter(e=>e.requestId===rawId);
   const arrival=events.find(e=>e.kind==='arrived')?.timeUs??0;
-  let queueStart: number | undefined, queueWait = 0;
-  for (const event of events) { if (event.kind === 'queued' || event.kind === 'preempted') queueStart = event.timeUs; if (queueStart != null && ['processing','timed_out'].includes(event.kind)) { queueWait += event.timeUs - queueStart; queueStart = undefined; } }
-  return <div className={`detail-side ${side.policy}`}><h3>{side.policy==='basic'?'Basic':'llm-d'}</h3>{!current && request?.sessionId && request.roundIndex > 0 ? <span className="stage pending">Waiting for prior turn</span> : <StageTag event={current}/>}<dl><div><dt>Arrives at · simulated time</dt><dd>{formatMs(arrival / 1000)}</dd></div><div><dt>Assigned to</dt><dd>{routing?.Clock!=null&&routing.Clock<=time?`Instance ${Number(routing.ChosenInstance.match(/\d+$/)?.[0]??0)+1}`:'Not routed yet'}</dd></div><div><dt>Queue wait · full run</dt><dd>{formatMs(queueWait / 1000)}</dd></div><div><dt>First token · full run</dt><dd>{formatMs(metric?.ttft_ms)}</dd></div></dl>
-    <ol className="event-timeline">{events.filter(e=>e.kind!=='preempted').map((e,i)=><li className={e.timeUs<=time?'passed':''} key={i}><span>{stageLabel[e.kind]}</span><time>+{formatMs((e.timeUs-arrival)/1000)}</time></li>)}</ol>
-    <details className="routing-detail"><summary>Recorded routing decision</summary>{routing?<><p className="raw-request-id">BLIS request: {rawId}</p><p>{side.policy==='basic'?'Random selection among available endpoints.':'Selected by the configured weighted endpoint scores. Scores are preferences, not predicted latency.'}</p>{routing.Scores&&<ul>{Object.entries(routing.Scores).map(([id,score])=><li key={id}><span>{id}{id===routing.ChosenInstance?' · selected':''}</span><strong>{score.toFixed(3)}</strong></li>)}</ul>}</>:<p>No routing record available.</p>}</details>
+  const transfer = side.playback.transfers?.find(t => t.requestId === rawId);
+  const prefillRouting = side.playback.decisions.PrefillRoutings?.find(r => r.ParentRequestID === rawId);
+  let queueStart: Event | undefined;
+  const waits = {prefill: 0, decode: 0, combined: 0};
+  for (const event of events) {
+    if ((event.kind === 'queued' || event.kind === 'preempted') && !queueStart) queueStart = event;
+    if (queueStart && ['processing','prefilling','decoding','timed_out','dropped'].includes(event.kind)) {
+      waits[queueStart.phase === 'prefill' ? 'prefill' : queueStart.phase === 'decode' ? 'decode' : 'combined'] += event.timeUs - queueStart.timeUs;
+      queueStart = undefined;
+    }
+  }
+  const routed = routing?.Clock != null && routing.Clock <= time;
+  const queueWait = waits.prefill + waits.decode + waits.combined;
+  return <div className={`detail-side ${side.policy}`}><h3>{side.policy==='basic'?'Basic':'llm-d'}</h3>{!current && request?.sessionId && request.roundIndex > 0 ? <span className="stage pending">Waiting for prior turn</span> : <StageTag event={current}/>}<dl><div><dt>Arrives at · simulated time</dt><dd>{formatMs(arrival / 1000)}</dd></div>{transfer ? <>
+      <div><dt>Prefill instance</dt><dd>{routed ? instanceLabel(transfer.prefillInstanceId) : 'Not routed yet'}</dd></div>
+      <div><dt>Decode instance</dt><dd>{routed ? instanceLabel(transfer.decodeInstanceId) : 'Not routed yet'}</dd></div>
+      <div><dt>Prefill queue · full run</dt><dd>{formatMs(waits.prefill / 1000)}</dd></div>
+      <div><dt>KV space wait · full run</dt><dd>{formatMs((transfer.startUs-transfer.prefillCompleteUs)/1000)}</dd></div>
+      <div><dt>KV transfer · full run</dt><dd>{formatMs((transfer.endUs-transfer.startUs)/1000)}</dd></div>
+      <div><dt>KV blocks pulled / total</dt><dd>{transfer.pulledBlocks} / {transfer.blocks}</dd></div>
+      <div><dt>Decode queue · full run</dt><dd>{formatMs(waits.decode / 1000)}</dd></div>
+    </> : <><div><dt>Assigned to</dt><dd>{routed && routing ? instanceLabel(routing.ChosenInstance) : 'Not routed yet'}</dd></div><div><dt>Queue wait · full run</dt><dd>{formatMs(queueWait / 1000)}</dd></div></>}<div><dt>First token · full run</dt><dd>{formatMs(metric?.ttft_ms)}</dd></div></dl>
+    {transfer && <button className="inspect-transfer" onClick={()=>onTransfer(side,transfer)}>Pause inside this KV transfer ↗</button>}
+    <ol className="event-timeline">{events.filter(e=>e.kind!=='preempted').map((e,i)=><li className={e.timeUs<=time?'passed':''} key={i}><span>{eventLabel(e)}</span><time>+{formatMs((e.timeUs-arrival)/1000)}</time></li>)}</ol>
+    <details className="routing-detail"><summary>Recorded routing decision</summary>{routing?<><p className="raw-request-id">BLIS request: {rawId}</p>{transfer && <p>Prefill: {prefillRouting?.ChosenInstance ?? transfer.prefillInstanceId}. Decode: {routing.ChosenInstance}. Scores below are for the decode pool. Transfers pull only blocks absent from its KV cache.</p>}<p>{side.policy==='basic'?'Random selection among available endpoints.':'Selected by the configured weighted endpoint scores. Scores are preferences, not predicted latency.'}</p>{routing.Scores&&<ul>{Object.entries(routing.Scores).map(([id,score])=><li key={id}><span>{id}{id===routing.ChosenInstance?' · selected':''}</span><strong>{score.toFixed(3)}</strong></li>)}</ul>}</>:<p>No routing record available.</p>}</details>
   </div>;
 }

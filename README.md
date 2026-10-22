@@ -31,11 +31,15 @@ Choose Llama 3.1 8B Instruct, Qwen 2.5 7B Instruct, or Qwen3 14B on NVIDIA A100 
 
 Choose chat, summarization, code generation, or multi-turn agents. Code generation defaults to 64 requests with a mean 2,048-token output and shared repository context. Agent sessions default to 16 agents with four sequential turns each, a 500 ms pause, and growing context. Edit token lengths and either request traffic or session count, turns, pauses, and start delay. Run both policies, pause or scrub their synchronized timelines, and inspect a request's lifecycle and routing scores. Changing a selection leaves the previous result labeled with its original deployment until a new comparison finishes.
 
-Basic routing uses random endpoint selection. The llm-d side uses the upstream in-flight load configuration. Both run inside BLIS's embedded llm-d router with the same model, hardware, engine settings, and cold caches. All displayed performance values come from these simulations.
+Basic routing uses random endpoint selection. The llm-d side uses the upstream in-flight load configuration for combined instances and the upstream prefix-cache/queue configuration for separate pools. Both run inside BLIS's embedded llm-d router with the same model, hardware, engine settings, and cold caches. All displayed performance values come from these simulations.
 
-The service verifies actual input/output token hashes on both sides. Single-turn workloads also require identical arrival times. Agents share the same session starts and per-turn token content; each follow-up arrives after its own previous engine response plus the pause, so later arrival times can differ. The inspector matches agent and turn across both sides and breaks down retained context versus new input. Its result export contains raw BLIS metrics, decision records, playback events, snapshots, dependency pins, and modeling assumptions. Raw runs and resolved YAML are retained under `.runtime/runs/<run-id>/`.
+The service verifies actual input/output token hashes on both sides. Single-turn workloads also require identical arrival times. Agents share the same session starts and per-turn token content; each follow-up arrives after its own previous BLIS completion plus the pause, so later arrival times can differ. The inspector matches agent and turn across both sides and breaks down retained context versus new input. Its result export contains raw BLIS metrics, decision records, playback events, snapshots, dependency pins, and modeling assumptions. Raw runs and resolved YAML are retained under `.runtime/runs/<run-id>/`.
 
-See [BLIS integration details](docs/BLIS_INTEGRATION.md) for the instrumentation, units, and current limits, and the [implementation plan](docs/PLAN.md) for the remaining milestones.
+Choose **Separate prefill / decode pools** under Infrastructure to split the total GPU budget between input processing and output generation. Both policies receive the same split, model, GPU, and network. Choose InfiniBand 400 Gb/s, RoCE 200 Gb/s, or Ethernet 100 Gb/s from the pinned catalog. Each GPU occupies its own node, and simultaneous transfers contend for bandwidth. This mode compares routing within a shared disaggregated layout; it does not compare a combined baseline against a disaggregated llm-d deployment.
+
+Playback shows separate pools and KV transfers between them. Use **Inspect next transfer** to pause inside a recorded transfer. The request inspector shows both endpoint assignments, prefill/decode queue waits, waiting for decode KV capacity, transfer duration, and blocks actually pulled after cache reuse. Each original request is counted once. Network rates are nominal catalog specifications, not measured deployment bandwidth.
+
+See [BLIS integration details](docs/BLIS_INTEGRATION.md) for the instrumentation, units, and current limits, and the [implementation plan](docs/PLAN.md) for delivery scope.
 
 ## Critical checks
 
@@ -46,9 +50,12 @@ npm run build
 npm run test:integration
 npm run test:deployments
 npm run test:workloads
+npm run test:disaggregation
 ```
 
 Integration checks run real BLIS comparisons, account for requests, compare first-token timestamps to BLIS metrics, verify determinism, and compare instrumented and uninstrumented execution. They also exercise summarization and reject unsupported hardware. Workload checks exercise the full code and agent defaults, prove causal turn timing and retained token identity, verify that observation leaves session execution unchanged, and reject possible context overflow.
+
+Disaggregation checks cover all four workloads, matched and uneven GPU splits, actual transfer records and parent accounting, zero-pause agent sessions, three model/GPU/network combinations, network bandwidth effects, and inert deterministic observation.
 
 Deployment checks exercise all nine model/GPU combinations on both policies, verify matching resolved YAML and request inputs, and check that model and hardware changes affect simulated timing and cache identity. The selector metadata is generated from the pinned catalog with `npm run catalog:sync`; it is a curated support list, not the catalog's entire inventory.
 
@@ -59,7 +66,7 @@ Deployment checks exercise all nine model/GPU combinations on both policies, ver
 - A default model, GPU, and instance count that users can change.
 - Synchronized playback with pause, step, scrubbing, and request inspection.
 - Queue, latency, throughput, cache, and request outcome comparisons.
-- Optional prefill/decode disaggregation after the initial routing comparison works.
+- Optional prefill/decode pools with matched total GPU budgets and visible KV transfers.
 
 ## Primary sources
 

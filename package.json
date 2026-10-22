@@ -15,7 +15,8 @@
     "test:integration": "node scripts/verify-integration.mjs",
     "catalog:sync": "python3 scripts/sync-deployments.py",
     "test:deployments": "node scripts/verify-deployments.mjs",
-    "test:workloads": "node scripts/verify-workloads.mjs"
+    "test:workloads": "node scripts/verify-workloads.mjs",
+    "test:disaggregation": "node scripts/verify-disaggregation.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.2.0",

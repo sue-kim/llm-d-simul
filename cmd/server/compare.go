@@ -15,30 +15,36 @@ import (
 	"strings"
 )
 
-const adapterVersion = "2"
+const adapterVersion = "3"
 
 type Config struct {
-	Workload     string  `json:"workload"`
-	Model        string  `json:"model"`
-	Hardware     string  `json:"hardware"`
-	Instances    int     `json:"instances"`
-	Requests     int     `json:"requests"`
-	Rate         float64 `json:"rate"`
-	InputTokens  int     `json:"inputTokens"`
-	OutputTokens int     `json:"outputTokens"`
-	PrefixTokens int     `json:"prefixTokens"`
-	Seed         int     `json:"seed"`
-	Sessions     int     `json:"sessions"`
-	Turns        int     `json:"turns"`
-	ThinkTimeMs  int     `json:"thinkTimeMs"`
-	MeanStartMs  int     `json:"meanStartMs"`
+	Disaggregated    bool    `json:"disaggregated"`
+	PrefillInstances int     `json:"prefillInstances"`
+	Fabric           string  `json:"fabric"`
+	Workload         string  `json:"workload"`
+	Model            string  `json:"model"`
+	Hardware         string  `json:"hardware"`
+	Instances        int     `json:"instances"`
+	Requests         int     `json:"requests"`
+	Rate             float64 `json:"rate"`
+	InputTokens      int     `json:"inputTokens"`
+	OutputTokens     int     `json:"outputTokens"`
+	PrefixTokens     int     `json:"prefixTokens"`
+	Seed             int     `json:"seed"`
+	Sessions         int     `json:"sessions"`
+	Turns            int     `json:"turns"`
+	ThinkTimeMs      int     `json:"thinkTimeMs"`
+	MeanStartMs      int     `json:"meanStartMs"`
 }
 
 func defaultConfig() Config {
-	return Config{Workload: "chat", Model: "llama-3.1-8b-instruct", Hardware: "h100", Instances: 4, Requests: 256, Rate: 40, InputTokens: 256, OutputTokens: 256, PrefixTokens: 512, Seed: 42, Sessions: 16, Turns: 4, ThinkTimeMs: 500, MeanStartMs: 1000}
+	return Config{Workload: "chat", Model: "llama-3.1-8b-instruct", Hardware: "h100", Instances: 4, Requests: 256, Rate: 40, InputTokens: 256, OutputTokens: 256, PrefixTokens: 512, Seed: 42, Sessions: 16, Turns: 4, ThinkTimeMs: 500, MeanStartMs: 1000, PrefillInstances: 2, Fabric: "ib-400g"}
 }
 
 func (c Config) Validate() error {
+	if err := c.validatePools(); err != nil {
+		return err
+	}
 	if c.Workload != "chat" && c.Workload != "summarization" && c.Workload != "code" && c.Workload != "agents" {
 		return fmt.Errorf("Choose chat, summarization, code generation, or multi-turn agents.")
 	}
@@ -80,6 +86,8 @@ func (c Config) Validate() error {
 }
 
 type Event struct {
+	Phase                string `json:"phase,omitempty"`
+	SubRequestID         string `json:"subRequestId,omitempty"`
 	TimeUs               int64  `json:"timeUs"`
 	RequestID            string `json:"requestId"`
 	Kind                 string `json:"kind"`
@@ -97,6 +105,9 @@ type Event struct {
 	RetainedOutputTokens int    `json:"retainedOutputTokens,omitempty"`
 }
 type Playback struct {
+	RawEvents []Event           `json:"rawEvents,omitempty"`
+	Pools     map[string]string `json:"pools"`
+	Transfers []Transfer        `json:"transfers"`
 	Events    []Event           `json:"events"`
 	Snapshots []json.RawMessage `json:"snapshots"`
 	Decisions json.RawMessage   `json:"decisions"`
@@ -136,7 +147,7 @@ func compare(ctx context.Context, root string, config Config) (*Comparison, erro
 	hash.Write(lock)
 	hash.Write(deploymentData)
 	hash.Write([]byte(adapterVersion))
-	for _, name := range []string{"configs/basic-router.yaml", "configs/llmd-router.yaml", "cmd/server/compare.go", "cmd/server/workloads.go", "integrations/blis/playback_cmd.go", "integrations/blis/playback_sim.go", "scripts/build-blis.py"} {
+	for _, name := range []string{"configs/basic-router.yaml", "configs/llmd-router.yaml", "configs/basic-pd-router.yaml", "configs/llmd-pd-router.yaml", "cmd/server/disaggregation.go", "integrations/blis/playback_pd.go", "cmd/server/compare.go", "cmd/server/workloads.go", "integrations/blis/playback_cmd.go", "integrations/blis/playback_sim.go", "scripts/build-blis.py"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			return nil, err
@@ -179,9 +190,13 @@ func compare(ctx context.Context, root string, config Config) (*Comparison, erro
 		return nil, err
 	}
 	result.IdenticalInputs = result.Fairness.IdenticalArrivalTimes
+	if config.Disaggregated {
+		result.Assumptions = append(result.Assumptions, fmt.Sprintf("Both sides use %d prefill GPUs and %d decode GPUs (%d total), one GPU per node, %s, NixlConnector, and link contention enabled. Fabric bandwidth is nominal catalog data, not a measured deployment rate.", config.PrefillInstances, config.Instances-config.PrefillInstances, config.Instances, config.Fabric))
+		result.Assumptions = append(result.Assumptions, "Prefill and decode child events are joined under their original request. Streaming uses BLIS's parent TTFT; completion uses the parent response completion. Agent follow-ups include BLIS's parent completion overhead.")
+	}
 	if config.Workload == "agents" {
 		result.Assumptions[0] = "Synthetic agent sessions: independent initial contexts, with prior input and output context accumulated within each session. The pinned BLIS session manager retains one fewer output token per turn than its generated-token metric. No real tool execution or output quality is modeled."
-		result.Assumptions = append(result.Assumptions, "Both sides have identical session starts and token content. Each next turn arrives after its own previous engine completion plus the configured pause; later arrival times can differ. Session and turn identify matching requests because BLIS follow-up IDs depend on completion order.")
+		result.Assumptions = append(result.Assumptions, "Both sides have identical session starts and token content. Each next turn arrives after its own BLIS completion (engine completion when colocated, parent response completion when disaggregated) plus the configured pause; later arrival times can differ. Session and turn identify matching requests because BLIS follow-up IDs depend on completion order.")
 	}
 	for _, side := range []Side{result.Basic, result.LLMD} {
 		for _, e := range side.Playback.Events {
@@ -229,7 +244,11 @@ func runSide(ctx context.Context, root, dir, policy string, c Config) (Side, err
 	if err := os.MkdirAll(workdir, 0755); err != nil {
 		return side, err
 	}
-	router, err := os.ReadFile(filepath.Join(root, "configs", policy+"-router.yaml"))
+	routerName := policy + "-router.yaml"
+	if c.Disaggregated {
+		routerName = policy + "-pd-router.yaml"
+	}
+	router, err := os.ReadFile(filepath.Join(root, "configs", routerName))
 	if err != nil {
 		return side, err
 	}
@@ -240,6 +259,9 @@ func runSide(ctx context.Context, root, dir, policy string, c Config) (Side, err
 		}
 	}
 	args := []string{"run", "--scenarios", workdir, "--scenario", "scenario.yaml", "--catalog", filepath.Join(root, ".runtime/blis-catalog"), "--registry", filepath.Join(root, ".runtime/blis-registry"), "--num-instances", strconv.Itoa(c.Instances), "--workload-spec", filepath.Join(workdir, "workload.yaml"), "--seed", strconv.Itoa(c.Seed), "--trace-level", "decisions", "--counterfactual-k", strconv.Itoa(c.Instances), "--trace-output", filepath.Join(workdir, "trace"), "--metrics-path", filepath.Join(workdir, "metrics.json"), "--log", "error"}
+	if c.Disaggregated {
+		args = append(args, "--prefill-instances", strconv.Itoa(c.PrefillInstances), "--decode-instances", strconv.Itoa(c.Instances-c.PrefillInstances), "--pd-transfer-contention")
+	}
 	command := exec.CommandContext(ctx, filepath.Join(root, ".runtime/bin/blis"), args...)
 	command.Dir = filepath.Join(root, ".runtime/inference-sim")
 	command.Env = append(os.Environ(), "BLIS_PLAYBACK_PATH="+filepath.Join(workdir, "playback.json"))
@@ -267,11 +289,17 @@ func runSide(ctx context.Context, root, dir, policy string, c Config) (Side, err
 			return side, fmt.Errorf("Read %s: %w", name, err)
 		}
 	}
+	if err := verifyPools(c, side.Playback); err != nil {
+		return side, err
+	}
 	side.Log = strings.TrimSpace(output.String())
 	return side, nil
 }
 
 func scenario(c Config) string {
+	if c.Disaggregated {
+		return disaggregatedScenario(c)
+	}
 	return fmt.Sprintf(`kind: Scenario
 name: comparison
 engine_version: "0.31.0"

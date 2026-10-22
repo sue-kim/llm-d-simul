@@ -1,15 +1,15 @@
 # BLIS integration
 
-The comparison runs BLIS v0.12.0 twice over matched single-turn workloads or multi-turn sessions. It models basic random routing and the upstream `inflight-load.yaml` llm-d configuration. The browser replays recorded output; animation speed and pausing do not affect the simulation.
+The comparison runs BLIS v0.12.0 twice over matched single-turn workloads or multi-turn sessions. It models basic random routing and the upstream `inflight-load.yaml` llm-d configuration for combined instances or `pd.yaml` for separate pools. The browser replays recorded output; animation speed and pausing do not affect the simulation.
 
 ## Supported deployment
 
 - Models: `llama-3.1-8b-instruct`, `qwen2.5-7b-instruct`, and `qwen3-14b`, using their BF16 checkpoint precision.
 - Hardware: catalog `a100-80`, `h100`, and `h200`. All nine model/GPU pairs are supported.
-- Allocation: 2–8 replicas on one node, one GPU per replica; TP=1, PP=1, DP=1.
+- Allocation: 2–8 total GPUs, one GPU per replica; TP=1, PP=1, DP=1. Combined instances share one node. Separate pools use one GPU per node, with at least one prefill and one decode GPU.
 - KV cache: `bfloat16`, block size 16, initially cold on both sides.
 - Engine: vLLM 0.31.0 settings, context limit 32768, batch token budget 8192, maximum 256 sequences, GPU memory utilization 0.9.
-- Router: no gateway latency or routing decision-time cost, no flow control, no disaggregation.
+- Router: no gateway latency or routing decision-time cost, no flow control. Optional prefill/decode disaggregation is described below.
 
 These combinations execute in the pinned simulator. That establishes integration compatibility, not measured production accuracy for each deployment. The kernel's own coefficient provenance remains attached to the results. Model behavior such as thinking mode is not simulated; the user's configured token demands determine the workload.
 
@@ -35,7 +35,7 @@ The code preset has 64 requests at 12 requests/second, mean 1,024 new input toke
 
 The agent preset uses a BLIS cohort with one session per member (`single_session: true`), `closed_loop: true`, `context_growth: accumulate`, and independent prefixes (`prefix_sharing: per_member`). Defaults: 16 sessions, four turns, mean 256 new input and 256 output tokens per turn, 1,024 initial context tokens, 500 ms between turns, and 1,000 ms mean initial delay. Each session draws one exponential start delay; the cohort aggregate rate is `sessions × 1000 / meanStartMs` because BLIS divides it among the members. This is a finite population, not an imposed rate on follow-up requests.
 
-A follow-up is generated only after the previous engine completion plus the pause. Both policies share initial start times, session identity, token demands, and actual token content. Later arrivals may differ as a consequence of policy performance. BLIS follow-up request IDs include a completion-order counter; pairing uses `(sessionId, roundIndex)` while preserving the original IDs for raw metrics and routing traces. The service checks every turn's causal time and hashes the retained context to verify continuity.
+A follow-up is generated only after the previous engine completion (combined instances) or parent completion callback (separate pools), plus the pause. Both policies share initial start times, session identity, token demands, and actual token content. Later arrivals may differ as a consequence of policy performance. BLIS follow-up request IDs include a completion-order counter; pairing uses `(sessionId, roundIndex)` while preserving the original IDs for raw metrics and routing traces. The service checks every turn's causal time and hashes the retained context to verify continuity.
 
 **Pinned BLIS accumulation detail:** in v0.12.0, `SessionManager.OnComplete` retains `ProgressIndex - InputLen` output tokens, while completed-token metrics include the token sampled at prefill completion as well. For these uncapped sessions, retained output is one token shorter than generated output. The observer records that actual retention boundary at completion without changing BLIS behavior. `retainedOutputTokens`, `historyTokens`, `historyHash`, and `contextHash` make it explicit in the export; the inspector shows the actual retained context.
 
@@ -43,7 +43,21 @@ Supported agents have 1–64 sessions, 2–8 turns, pauses of 0–5,000 ms, and 
 
 Exports include `fairness.mode` (`identical-arrivals` or `matched-sessions`), `matchedRequests`, and `identicalArrivalTimes`. The legacy `identicalInputs` field retains its stronger meaning of matched tokens **and** identical arrival times, so it can be false for a valid matched-session comparison.
 
-The two routing configurations are committed in `configs/`. Prefix caching and all engine settings are the same on both sides. The basic configuration is an explicit random-picker policy inside the embedded llm-d framework; it is not a measurement of an independently deployed proxy.
+The routing configurations are committed in `configs/`. Prefix caching and all engine settings are the same on both sides. The basic configuration is an explicit random-picker policy inside the embedded llm-d framework; it is not a measurement of an independently deployed proxy.
+
+## Prefill/decode disaggregation
+
+One shared `disaggregated` switch selects the layout for both policies. `instances` remains the total GPU budget. `prefillInstances` must be between 1 and `instances - 1`; the remaining instances form the decode pool. The server verifies recorded pool roles against this allocation before returning a comparison. Changing the budget clamps the draft split in the UI. Model, GPU, engine settings, workload, seed, pool allocation, and network remain identical across policies.
+
+Disaggregated scenarios use `cluster.nodes = instances`, `gpus_per_node = 1`, explicit prefill/decode deployment pools, and `NixlConnector`. The catalog provides `ib-400g` (50 GB/s), `roce-200g` (25 GB/s), and `ethernet-100gbe` (12.5 GB/s) nominal inter-node bandwidth. `--pd-transfer-contention` enables BLIS's shared-link contention model. These are catalog specifications, not a claim of measured network performance.
+
+`basic-pd-router.yaml` filters by pool role and picks randomly within each pool. `llmd-pd-router.yaml` follows the pinned upstream `pd.yaml`: approximate prefix-cache score with weight 2, queue score with weight 1, and max-score selection. Both use `always-disagg-pd-decider` and `disagg-profile-handler`. This isolates routing within matched separate pools; asymmetric layouts are outside this comparison mode.
+
+The adapter reads `ParentRequests()` and `PoolMembership()` after execution. Explicit child IDs join prefill/decode events to original requests, preserving session/turn metadata. Prefill child completion only means input KV is ready. Its streaming marker is discarded. Decode queue entry uses the parent's recorded `DecodeEnqueueTime` because that engine path bypasses the ordinary queue hook. First-token timing comes from BLIS's projected parent TTFT. Completion comes from parent `CompletionTime`, including the fixed post-decode overhead used by its session callback; full client latency still comes from BLIS metrics, which can include further output-processing overhead.
+
+Transfers export the prefill completion, actual start/end, standalone duration, total/pulled KV blocks, child IDs, and both instance IDs. The interval before transfer starts represents waiting for decode KV capacity. Transfer duration includes modeled link contention; the aggregate contention delay is BLIS's actual transfer duration minus its standalone cost. Decode prefix reuse reduces the blocks pulled. The browser does not stretch or invent transfer times; **Inspect next transfer** pauses at a transfer's midpoint. Raw engine child events and raw `KVTransfers`/routing records remain in the export.
+
+Live received/finished counts use normalized parent events, never the sum of both pools' child completion counters. KV occupancy uses the original snapshots. The retained-context observer also covers the PD parent session callback, preserving causal follow-up arrival checks even with zero pause.
 
 ## Recorded playback
 
@@ -60,11 +74,11 @@ The adapter adds a value-only observer to the pinned source. Its patch anchors a
 | Queued again | Batch formation's preemption transition |
 | Timed out | Engine timeout transition |
 
-The exported first-token event uses the timestamp already calculated by BLIS. It can be recorded before simulation time reaches that timestamp; the exporter sorts events by their timestamps. Arrival and routing precede endpoint events when timestamps tie. Other equal-time ordering is preserved.
+The exported first-token event uses the timestamp already calculated by BLIS. It can be recorded before simulation time reaches that timestamp; the exporter sorts events by their timestamps. Arrival and routing precede endpoint events when timestamps tie. Other equal-time ordering is preserved for combined instances. PD ties follow the parent lifecycle: arrival, routing, prefill queue/work, KV capacity wait, transfer start/end, decode queue/work, first token, and terminal outcome.
 
 The “Preparing input” interval is distinct from engine queue wait. Queue wait is calculated from recorded queue-entry and scheduling intervals, including preemption. BLIS's `scheduling_delay_ms` is retained in raw metrics but is not substituted for this interval.
 
-The Finished event is the engine's departure time. Client response timing may include additional output-processing or completion overhead. The full-run latency table uses BLIS's metrics rather than deriving latency from the engine completion marker.
+For combined instances, the Finished event is the engine's departure time. Client response timing may include additional output-processing or completion overhead. The full-run latency table uses BLIS's metrics rather than deriving latency from the engine completion marker.
 
 Progress snapshots are sampled at approximately 50 ms intervals of simulated time using BLIS's `ProgressHook`. The UI shows the most recent available snapshot at or before the playback cursor, never a future sample. KV occupancy is modeled cache occupancy, not measured GPU utilization. Request states and live counts come from recorded lifecycle events. Up to 30 squares per instance are shown, with an explicit overflow count; all requests remain searchable.
 
@@ -80,12 +94,13 @@ Each run directory retains the common workload, scenario, router YAML, executed 
 
 ## Current boundary
 
-The simulator covers chat, summarization, code generation, and multi-turn agents on the nine supported deployments. Additional GPUs/models, multi-GPU replicas, burstiness controls, prefill/decode pools, capacity sweeps, and SLO summaries remain later milestones. It runs as a local development tool; hosted multi-user execution and deployment automation are not implemented.
+The simulator covers chat, summarization, code generation, and multi-turn agents on the nine supported deployments. Additional GPUs/models, multi-GPU replicas, burstiness controls, asymmetric pool layouts, capacity sweeps, and SLO summaries remain later milestones. It runs as a local development tool; hosted multi-user execution and deployment automation are not implemented.
 
 ## Sources
 
 - [Pinned BLIS release](https://github.com/inference-sim/inference-sim/tree/v0.12.0)
 - [Routing configurations and model limitations](https://github.com/inference-sim/inference-sim/blob/v0.12.0/docs/guide/routing.md)
+- [Upstream disaggregated routing configuration](https://github.com/inference-sim/inference-sim/blob/v0.12.0/examples/llm-d/pd.yaml)
 - [Upstream in-flight load configuration](https://github.com/inference-sim/inference-sim/blob/v0.12.0/examples/llm-d/inflight-load.yaml)
 - [Multi-turn workloads](https://github.com/inference-sim/inference-sim/blob/v0.12.0/docs/guide/workloads.md#multi-turn-conversations)
 - [Closed-loop session implementation](https://github.com/inference-sim/inference-sim/blob/v0.12.0/sim/workload/session.go)

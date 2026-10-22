@@ -41,7 +41,14 @@ for gpu_id, label in hardware_labels:
         raise RuntimeError(f'{gpu_id}: expected one numeric MemoryGiB declaration')
     hardware.append(dict(id=gpu_id, label=f'NVIDIA {label}', shortLabel=label,
                          memoryGiB=float(values[0])))
+networks = []
+for network_id, label in [('ib-400g', 'InfiniBand 400 Gb/s'), ('roce-200g', 'RoCE 200 Gb/s'), ('ethernet-100gbe', 'Ethernet 100 Gb/s')]:
+    source = (CATALOG / 'networks' / f'{network_id}.yaml').read_text()
+    values = re.findall(r'^InterNodeBwGBps:\s*([0-9]+(?:\.[0-9]+)?)\s*$', source, flags=re.MULTILINE)
+    if len(values) != 1:
+        raise RuntimeError(f'{network_id}: expected one numeric bandwidth declaration')
+    networks.append(dict(id=network_id, label=label, bandwidthGBps=float(values[0])))
 snapshot = dict(catalogCommit=commit, precision='BF16', contextLimit=context_limit,
-                gpusPerInstance=1, models=models, hardware=hardware)
+                gpusPerInstance=1, models=models, hardware=hardware, networks=networks)
 (ROOT / 'cmd/server/deployments.json').write_text(json.dumps(snapshot, indent=2) + '\n')
 print(f'Updated {len(models)} models and {len(hardware)} GPUs from catalog {commit[:12]}.')
