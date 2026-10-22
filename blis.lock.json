@@ -1,0 +1,8 @@
+{
+  "go": "1.27.3",
+  "repositories": {
+    "inference-sim": {"tag": "v0.12.0", "commit": "f199223d701d96dddeb1c314509bed003515b599"},
+    "blis-catalog": {"tag": "0.3.0", "commit": "676326ec6c708e91ec4981bd6b03922a7fe60512"},
+    "blis-registry": {"tag": "v0.2.0", "commit": "7f6662d7188dc3dc873a37623e1f7bbfe1d6081b"}
+  }
+}

@@ -1,0 +1,9 @@
+apiVersion: llm-d.ai/v1
+kind: EndpointPickerConfig
+plugins:
+  - type: single-profile-handler
+  - type: random-picker
+schedulingProfiles:
+  - name: default
+    plugins:
+      - pluginRef: random-picker

@@ -1,1 +1,8 @@
 .DS_Store
+.runtime/
+node_modules/
+dist/
+*.tsbuildinfo
+artifacts/runs/
+.env*
+!.env.example

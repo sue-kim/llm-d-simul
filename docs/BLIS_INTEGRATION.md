@@ -1,0 +1,69 @@
+# BLIS integration
+
+The first comparison runs BLIS v0.12.0 twice over an identical single-turn workload. It models basic random routing and the upstream `inflight-load.yaml` llm-d configuration. The browser replays recorded output; animation speed and pausing do not affect the simulation.
+
+## Supported deployment
+
+- Model: `llama-3.1-8b-instruct`, using its BF16 checkpoint precision.
+- Hardware: catalog `h100`, 80 GB per GPU.
+- Allocation: 2–8 replicas on one node, one GPU per replica; TP=1, PP=1, DP=1.
+- KV cache: `bfloat16`, block size 16, initially cold on both sides.
+- Engine: vLLM 0.31.0 settings, context limit 32768, batch token budget 8192, maximum 256 sequences, GPU memory utilization 0.9.
+- Router: no gateway latency or routing decision-time cost, no flow control, no disaggregation.
+
+This combination executes in the pinned simulator. That establishes integration compatibility, not measured production accuracy for this specific deployment. The kernel's own coefficient provenance remains attached to the results.
+
+## Inputs and fairness
+
+`blis.lock.json` pins the simulator, catalog, registry, and Go toolchain. The upstream simulator's Go module files pin its kernel, schema, and router dependencies. Setup verifies the downloaded source commits and the official Go archive checksum.
+
+The default has 256 requests at 40 requests per second, mean 256 input tokens plus a 512-token shared prefix, mean 256 output tokens, and seed 42. Input and output lengths follow bounded Gaussian distributions with 25% standard deviation, minimum 16 tokens, and maximum twice the configured mean. Arrivals are Poisson. The presets are custom synthetic examples inspired by BLIS's catalog; their distributions are not claimed to be production traces or exact copies of catalog presets.
+
+Both runs receive the same YAML and seed. The service checks every recorded arrival for identical request ID, timestamp, input count, and output count, and checks the number of arrivals against the requested count. A mismatch fails the comparison.
+
+The two routing configurations are committed in `configs/`. Prefix caching and all engine settings are the same on both sides. The basic configuration is an explicit random-picker policy inside the embedded llm-d framework; it is not a measurement of an independently deployed proxy.
+
+## Recorded playback
+
+The adapter adds a value-only observer to the pinned source. Its patch anchors and added files are committed in `scripts/build-blis.py` and `integrations/blis/`. The observer is enabled only by `BLIS_PLAYBACK_PATH` and neither changes simulation state nor consumes random values.
+
+| Event | Source |
+|---|---|
+| Arrived | Existing cluster arrival hook |
+| Routed / preparing input | Existing routing decision trace and its timestamp |
+| Queued | Engine QueuedEvent after enqueue |
+| Processing | Engine ScheduledEvent |
+| Streaming | Recorded first-token time when the first token is produced |
+| Finished | Engine RequestLeftEvent |
+| Queued again | Batch formation's preemption transition |
+| Timed out | Engine timeout transition |
+
+The exported first-token event uses the timestamp already calculated by BLIS. It can be recorded before simulation time reaches that timestamp; the exporter sorts events by their timestamps. Arrival and routing precede endpoint events when timestamps tie. Other equal-time ordering is preserved.
+
+The “Preparing input” interval is distinct from engine queue wait. Queue wait is calculated from recorded queue-entry and scheduling intervals, including preemption. BLIS's `scheduling_delay_ms` is retained in raw metrics but is not substituted for this interval.
+
+The Finished event is the engine's departure time. Client response timing may include additional output-processing or completion overhead. The full-run latency table uses BLIS's metrics rather than deriving latency from the engine completion marker.
+
+Progress snapshots are sampled at approximately 50 ms intervals of simulated time using BLIS's `ProgressHook`. The UI shows the most recent available snapshot at or before the playback cursor, never a future sample. KV occupancy is modeled cache occupancy, not measured GPU utilization. Request states and live counts come from recorded lifecycle events. Up to 30 squares per instance are shown, with an explicit overflow count; all requests remain searchable.
+
+## Metrics and provenance
+
+BLIS internal event clocks are microseconds. The UI converts them to seconds for playback and milliseconds for request durations. Per-request and aggregate latency fields in BLIS's metrics JSON are already milliseconds.
+
+The latency table uses the completed-request aggregates from the metrics file. It reports failed and unfinished counts alongside them. Throughput divides completed output tokens by a common window from time zero to the later end of the two runs, including recorded client-visible response timing. It does not compare two different throughput denominators or silently use stdout aggregates.
+
+Full-run metrics are labeled and remain fixed during playback. The inspector marks future lifecycle events as upcoming; its final timing and score details are explicitly recorded full-run information.
+
+Each run directory retains the common workload, scenario, router YAML, executed arguments, BLIS log, metrics, TraceV2 export, and playback export. The comparison cache key includes configuration, dependency pins, adapter version, router configurations, adapter source, and comparison-service source. Only a successful complete comparison is cached.
+
+## Current boundary
+
+The first slice covers single-turn chat and summarization on the supported deployment. Additional GPUs/models, multi-turn agents, code generation presets, burstiness controls, prefill/decode pools, capacity sweeps, and SLO summaries remain later milestones. It runs as a local development tool; hosted multi-user execution and deployment automation are not implemented.
+
+## Sources
+
+- [Pinned BLIS release](https://github.com/inference-sim/inference-sim/tree/v0.12.0)
+- [Routing configurations and model limitations](https://github.com/inference-sim/inference-sim/blob/v0.12.0/docs/guide/routing.md)
+- [Upstream in-flight load configuration](https://github.com/inference-sim/inference-sim/blob/v0.12.0/examples/llm-d/inflight-load.yaml)
+- [Metric definitions](https://github.com/inference-sim/inference-sim/blob/v0.12.0/docs/guide/results.md)
+- [Progress snapshot interface](https://github.com/inference-sim/inference-sim/blob/v0.12.0/sim/progress_hook.go)
