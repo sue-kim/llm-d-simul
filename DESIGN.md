@@ -23,3 +23,7 @@ Four workload presets share the same controls. Agent selection replaces request-
 ## Separate prefill/decode pools
 
 Keep one total GPU budget, split, and network control shared by both strategies. Group instance cards by prefill and decode with an intervening KV-transfer lane. Show in-transit and delivered counts, actual transfer progress, and a direct action to pause inside a transfer. Keep the sum of both pools visible on each side. Queue and finished counts describe parent requests; inspect both assignments, per-pool waits, capacity wait, and blocks pulled without exposing child IDs as extra user requests. Raw child records remain available in the export.
+
+## Latency targets and results summary
+
+Place shared target controls beside full-run results: first-token limit, response limit, and required percentage. Target edits reassess the current result immediately, independently of simulation settings and playback. Show one target verdict and matched policy cards with pass counts, percentage bars, a required-percentage marker, and failed/unfinished outcomes. Preserve either-policy wins and regressions. Explain the largest observed mean differences with links to request evidence; use an expandable phase table and per-instance queue findings for detail. Keep the sample population explicit and include active targets in exports.

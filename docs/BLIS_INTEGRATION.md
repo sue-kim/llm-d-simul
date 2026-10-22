@@ -82,6 +82,18 @@ For combined instances, the Finished event is the engine's departure time. Clien
 
 Progress snapshots are sampled at approximately 50 ms intervals of simulated time using BLIS's `ProgressHook`. The UI shows the most recent available snapshot at or before the playback cursor, never a future sample. KV occupancy is modeled cache occupancy, not measured GPU utilization. Request states and live counts come from recorded lifecycle events. Up to 30 squares per instance are shown, with an explicit overflow count; all requests remain searchable.
 
+## Latency target assessment
+
+`src/analysis.ts` evaluates a completed comparison in the browser; targets do not modify BLIS configuration, cache keys, or simulation behavior. Defaults of 1,000 ms TTFT, 10,000 ms full response, and 95% joint coverage are editable examples. Limits are inclusive. The numerator includes only parent requests with a completed lifecycle and finite nonnegative BLIS `ttft_ms` and `e2e_ms`, where both limits hold on that same request. The denominator is the maximum of planned requests, injected requests, and observed parent arrivals. Failed, unfinished, missing-measurement, and un-emitted planned agent turns therefore cannot inflate the pass rate. Agent requirements are per call, not per session. The verdict compares unrounded counts against the required percentage.
+
+Explanation populations are separate from target populations: match valid completed requests by request ID, or session/turn for agents. Use the same pairs to compare mean TTFT and response time. Phase explanations additionally require consistent queue and transfer records on both sides. Report excluded timelines explicitly instead of fabricating contributions. Averages are additive; differences of percentiles are not decomposed as phase costs.
+
+The first-token path is partitioned into arrival-to-first-engine-queue preparation (including endpoint rendering/tokenization and admission waiting), recorded engine/prefill/decode queue intervals clipped at the first-token boundary, decode KV-space wait, standalone KV transfer cost, additional transfer contention, and a residual for prompt processing plus first-token overhead. The interval after first token is BLIS E2E minus TTFT and includes later queueing, output generation, and output-processing overhead. Preemptions open new queue intervals; duplicate queue markers do not reset waits. Transfer contention is actual transfer duration minus standalone duration and is counted only once. Their sum equals mean BLIS E2E on the explained population.
+
+Queue findings choose the instance/queue role with the most accumulated wait before first token and report its population and mean wait, including zero waits among the matched requests assigned there. Links select the actual parent/session turn with the largest absolute paired phase difference and pause on the slower side's recorded interval; both policy clocks remain synchronized. These are observed differences, not counterfactual route predictions or causal estimates of an isolated setting change.
+
+JSON exports add `assessment` with schema version 1, active targets, both target scorecards, paired populations, mean deltas, phase comparisons, request evidence, and queue findings. Raw BLIS data remains intact. Invalid target entries hide the verdict and disable export until corrected.
+
 ## Metrics and provenance
 
 BLIS internal event clocks are microseconds. The UI converts them to seconds for playback and milliseconds for request durations. Per-request and aggregate latency fields in BLIS's metrics JSON are already milliseconds.
@@ -94,7 +106,7 @@ Each run directory retains the common workload, scenario, router YAML, executed 
 
 ## Current boundary
 
-The simulator covers chat, summarization, code generation, and multi-turn agents on the nine supported deployments. Additional GPUs/models, multi-GPU replicas, burstiness controls, asymmetric pool layouts, capacity sweeps, and SLO summaries remain later milestones. It runs as a local development tool; hosted multi-user execution and deployment automation are not implemented.
+The simulator covers chat, summarization, code generation, and multi-turn agents on the nine supported deployments. Additional GPUs/models, multi-GPU replicas, burstiness controls, asymmetric pool layouts, capacity sweeps, and session-level latency targets remain later milestones. It runs as a local development tool; hosted multi-user execution and deployment automation are not implemented.
 
 ## Sources
 

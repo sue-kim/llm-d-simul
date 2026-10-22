@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Comparison, Config, DeploymentOptions, Event, Side, Stage, Transfer } from './types';
+import { assessComparison, defaultTargets, queueIntervals, validTargets } from './analysis';
+import type { PhaseComparison } from './analysis';
+import { ResultsSummary } from './ResultsSummary';
 import { formatMs, formatNumber, requestKey, requestLabel, requestStates, sessionDurations, snapshotAt } from './playback';
 
 const defaults: Config = { workload: 'chat', model: 'llama-3.1-8b-instruct', hardware: 'h100', instances: 4, disaggregated: false, prefillInstances: 2, fabric: 'ib-400g', requests: 256, rate: 40, inputTokens: 256, outputTokens: 256, prefixTokens: 512, seed: 42, sessions: 16, turns: 4, thinkTimeMs: 500, meanStartMs: 1000 };
@@ -31,6 +34,8 @@ function Icon({ name, size = 18 }: { name: 'play' | 'pause' | 'reset' | 'step' |
 export function App() {
   const [config, setConfig] = useState<Config>(defaults);
   const [result, setResult] = useState<Comparison>();
+  const [targets, setTargets] = useState(defaultTargets);
+  const assessment = useMemo(() => result ? assessComparison(result, targets) : null, [result, targets]);
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [deployments, setDeployments] = useState<DeploymentOptions>();
@@ -106,9 +111,13 @@ export function App() {
     setTime(transfer.startUs + (transfer.endUs - transfer.startUs) / 2);
     setPlaying(false);
   }
+  function inspectEvidence(evidence: NonNullable<PhaseComparison['evidence']>) {
+    setSelected(evidence.key); setTime(evidence.timeUs); setPlaying(false);
+    document.getElementById('inspector-title')?.scrollIntoView({block: 'start'});
+  }
   function download() {
-    if (!result) return;
-    const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }));
+    if (!result || !assessment) return;
+    const url = URL.createObjectURL(new Blob([JSON.stringify({...result, assessment}, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = `llmd-comparison-${result.id}.json`; link.click(); URL.revokeObjectURL(url);
   }
   const allRequests = useMemo(() => result?.basic.playback.events.filter(e => e.kind === 'arrived') ?? [], [result]);
@@ -178,7 +187,7 @@ export function App() {
       </aside>
 
       <main>
-        <div className="page-heading"><div><h1>Compare inference routing</h1><p>One workload. Two routing strategies. Follow every request.</p></div><button className="text-button export" disabled={!result || busy} onClick={download}><Icon name="download" />Export run</button></div>
+        <div className="page-heading"><div><h1>Compare inference routing</h1><p>One workload. Two routing strategies. Follow every request.</p></div><button className="text-button export" disabled={!result || busy || !validTargets(targets)} onClick={download}><Icon name="download" />Export run</button></div>
         {error && <div className="error" role="alert"><strong>Couldn’t complete the comparison</strong><p>{error}</p></div>}
         <div className="comparison-context"><span className="verified-dot" /><span>{result ? `${workloadPresets[result.config.workload].label} · ${result.fairness.matchedRequests} matched requests · ${result.deployment.model.label} · ${result.config.instances} ${resultHardware} GPUs per side` : 'Matched requests, model, hardware, and engine settings'}</span><span className="synthetic-label">Synthetic workload</span></div>
         {result?.config.workload === 'agents' && <p className="session-note">{result.config.sessions} agents × {result.config.turns} turns. Same starting contexts and token content; each next turn waits for its own response + {result.config.thinkTimeMs} ms. Later arrivals can differ between sides.</p>}
@@ -200,6 +209,7 @@ export function App() {
         </div>
 
         <section className="results-section" aria-labelledby="results-title"><div className="section-heading"><h2 id="results-title">Full run results</h2><span>{result ? 'Completed-request latency · common throughput window' : 'Run a comparison to see measured simulation outputs'}</span></div>
+          <ResultsSummary result={result} targets={targets} assessment={assessment} onTargets={setTargets} onInspect={inspectEvidence}/>
           <Results result={result} />
         </section>
 
@@ -227,6 +237,7 @@ export function App() {
           <p>Multi-turn agents use BLIS closed-loop sessions. Each session has its own initial context, accumulates prior input and output context, and waits for the prior completion plus the configured pause (engine completion for combined instances; parent response completion for separate pools). Session starts and token hashes match across policies; later arrival times respond to each policy’s performance. The pinned BLIS session manager retains one fewer output token per turn than its generated-token metric; the inspector shows the actual retained amount. Pauses stand in for work between model calls; tool execution, branching, and reasoning quality are not modeled. Configurations that could exceed the engine context limit are refused.</p>
           <p>Model and GPU options come from the pinned BLIS catalog and have been exercised in this simulator. All use BF16 weights and KV cache, one GPU per instance, and a 32,768-token engine limit. GPU memory values follow the catalog’s modeled capacity in GiB. These checks establish compatibility; accuracy depends on BLIS’s coefficient coverage for the selected deployment.</p>
           <p>Separate pools divide the total GPU budget; they do not add GPUs. Both sides use the same split, one GPU per node, and the selected catalog network. BLIS prices KV pulls with NixlConnector and network contention enabled. Catalog network bandwidth is a nominal specification, not a measured deployment rate. Transfer markers follow recorded times, including decode cache reuse and waiting for KV space. The inspector reports the parent response and counts each request once; raw child events remain in the export.</p>
+          <p>Latency targets are evaluated locally against each parent request’s BLIS first-token and full-response times. A request must complete and meet both inclusive limits to pass. Failed, unfinished, unmeasured, and un-emitted planned agent turns count as misses. Targets can be edited without rerunning BLIS and are saved with the assessment in the export. Timing explanations compare matched completed requests, using averages rather than subtracting percentiles.</p>
           <p>Request transitions are recorded from the engine. Gauges use snapshots approximately every 50 ms. “Processing” includes prompt processing; “streaming” begins at the recorded first token. Full run metrics remain fixed while you replay.</p>
           {result && <><p>Run <code>{result.id}</code> · Seed {result.config.seed} · {result.fairness.mode === 'matched-sessions' ? 'Matched sessions, token content, and context continuity verified.' : 'Identical arrivals and token content verified.'}</p><dl className="pins">{Object.entries(result.provenance.repositories).map(([name,pin]) => <div key={name}><dt>{name}</dt><dd><a target="_blank" rel="noreferrer" href={`https://github.com/inference-sim/${name}/commit/${pin.commit}`}>{pin.tag} · {pin.commit.slice(0,12)}</a></dd></div>)}</dl><p>Kernel inputs include measured, vendor-specified, and assumed coefficients. Full provenance and raw decisions are included in the exported run.</p></>}
           <a href="https://github.com/inference-sim/inference-sim/blob/v0.12.0/docs/guide/routing.md" target="_blank" rel="noreferrer">Read the BLIS routing methodology ↗</a>
@@ -335,14 +346,9 @@ function RequestDetail({side,requestId,current,time,onTransfer}: {side:Side;requ
   const arrival=events.find(e=>e.kind==='arrived')?.timeUs??0;
   const transfer = side.playback.transfers?.find(t => t.requestId === rawId);
   const prefillRouting = side.playback.decisions.PrefillRoutings?.find(r => r.ParentRequestID === rawId);
-  let queueStart: Event | undefined;
   const waits = {prefill: 0, decode: 0, combined: 0};
-  for (const event of events) {
-    if ((event.kind === 'queued' || event.kind === 'preempted') && !queueStart) queueStart = event;
-    if (queueStart && ['processing','prefilling','decoding','timed_out','dropped'].includes(event.kind)) {
-      waits[queueStart.phase === 'prefill' ? 'prefill' : queueStart.phase === 'decode' ? 'decode' : 'combined'] += event.timeUs - queueStart.timeUs;
-      queueStart = undefined;
-    }
+  for (const interval of queueIntervals(events)) {
+    waits[interval.phase === 'prefill' ? 'prefill' : interval.phase === 'decode' ? 'decode' : 'combined'] += interval.endUs - interval.startUs;
   }
   const routed = routing?.Clock != null && routing.Clock <= time;
   const queueWait = waits.prefill + waits.decode + waits.combined;

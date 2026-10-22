@@ -39,6 +39,10 @@ Choose **Separate prefill / decode pools** under Infrastructure to split the tot
 
 Playback shows separate pools and KV transfers between them. Use **Inspect next transfer** to pause inside a recorded transfer. The request inspector shows both endpoint assignments, prefill/decode queue waits, waiting for decode KV capacity, transfer duration, and blocks actually pulled after cache reuse. Each original request is counted once. Network rates are nominal catalog specifications, not measured deployment bandwidth.
 
+Under **Full run results**, set first-token and full-response time limits plus the percentage of requests that must meet both. The example targets are 1 second, 10 seconds, and 95%. Changes reassess the existing run instantly without running BLIS again. Each request must finish and satisfy both inclusive limits. Failed, unfinished, unmeasured, and un-emitted planned agent turns count as misses; agent targets apply per model call.
+
+The results summary states whether either policy meets the requirement, shows exact counts, and explains mean timing differences using requests completed on both sides. Expand **Timing breakdown** for preparation/admission, engine or per-pool queues, KV-space waiting, standalone transfer cost, contention, first-token work, and the rest of the response. Queue findings identify the instance with the most accumulated wait. **Inspect largest request gap** pauses the shared timeline at supporting evidence. Exported JSON includes the current targets and versioned assessment alongside the original BLIS result.
+
 See [BLIS integration details](docs/BLIS_INTEGRATION.md) for the instrumentation, units, and current limits, and the [implementation plan](docs/PLAN.md) for delivery scope.
 
 ## Critical checks
@@ -46,12 +50,15 @@ See [BLIS integration details](docs/BLIS_INTEGRATION.md) for the instrumentation
 ```sh
 npm test
 npm run build
+npm run test:analysis
 # With the API running:
 npm run test:integration
 npm run test:deployments
 npm run test:workloads
 npm run test:disaggregation
 ```
+
+Analysis checks cover inclusive and joint targets, failure and missing-data denominators, exact percentage boundaries, session matching, preemption, and non-overlapping phase totals.
 
 Integration checks run real BLIS comparisons, account for requests, compare first-token timestamps to BLIS metrics, verify determinism, and compare instrumented and uninstrumented execution. They also exercise summarization and reject unsupported hardware. Workload checks exercise the full code and agent defaults, prove causal turn timing and retained token identity, verify that observation leaves session execution unchanged, and reject possible context overflow.
 

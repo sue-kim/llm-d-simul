@@ -145,7 +145,7 @@ Retain the provenance reported by the kernel. Identify measured, vendor-specifie
 | 3. Workload exploration | Four editable presets, supported model/GPU selection, and results summary | Edits produce new BLIS runs with visible assumptions and internally consistent metrics |
 | 4. Prefill/decode exploration | Optional separate prefill and decode pools with visible KV transfers | Comparison preserves total hardware allocation and includes transfer costs and correct parent-request accounting |
 
-Milestones 1–4 are implemented: pinned BLIS comparisons, synchronized inspection, four editable workloads, matched model/GPU selection, and optional separate prefill/decode pools. The same pool split and total GPU budget apply to both strategies. Recorded KV transfers, network selection, and parent request accounting are included.
+Milestones 1–4 are implemented: pinned BLIS comparisons, synchronized inspection, four editable workloads, matched model/GPU selection, and optional separate prefill/decode pools. The same pool split and total GPU budget apply to both strategies. Recorded KV transfers, network selection, and parent request accounting are included. Editable latency targets and the results summary now assess joint per-request coverage and explain paired mean differences, queue concentration, and transfer contention with inspectable request evidence.
 
 ## Critical checks
 
