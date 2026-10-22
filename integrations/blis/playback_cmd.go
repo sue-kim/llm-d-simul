@@ -29,7 +29,21 @@ func attachPlayback(cs *cluster.ClusterSimulator) {
 		return
 	}
 	playback = &playbackExport{Events: []sim.PlaybackEvent{}, Snapshots: []sim.ProgressSnapshot{}}
-	sim.PlaybackObserver = func(e sim.PlaybackEvent) { playback.Events = append(playback.Events, e) }
+	sim.PlaybackHistoryTokens = map[string]int{}
+	arrivalIndices := map[string]int{}
+	sim.PlaybackObserver = func(e sim.PlaybackEvent) {
+		if e.Kind == "context_retained" {
+			if i, ok := arrivalIndices[e.RequestID]; ok {
+				playback.Events[i].ContextHash = e.ContextHash
+				playback.Events[i].RetainedOutputTokens = e.RetainedOutputTokens
+			}
+			return
+		}
+		if e.Kind == "arrived" {
+			arrivalIndices[e.RequestID] = len(playback.Events)
+		}
+		playback.Events = append(playback.Events, e)
+	}
 	cs.SetProgressHook(playback, 50000)
 }
 

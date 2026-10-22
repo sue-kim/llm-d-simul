@@ -16,7 +16,7 @@ func TestValidateRejectsUnsafeOrUnsupportedRuns(t *testing.T) {
 		{"unknown model", func(c *Config) { c.Model = "../../other" }},
 		{"unsupported multi-GPU model", func(c *Config) { c.Model = "llama-3.1-70b-instruct" }},
 		{"unknown hardware", func(c *Config) { c.Hardware = "b300" }},
-		{"unsupported sessions", func(c *Config) { c.Workload = "agents" }},
+		{"unknown workload", func(c *Config) { c.Workload = "unknown" }},
 		{"unbounded request count", func(c *Config) { c.Requests = 100000 }},
 		{"nonfinite traffic", func(c *Config) { c.Rate = math.Inf(1) }},
 		{"missing hardware allocation", func(c *Config) { c.Instances = 0 }},

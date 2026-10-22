@@ -1,6 +1,6 @@
 # BLIS integration
 
-The first comparison runs BLIS v0.12.0 twice over an identical single-turn workload. It models basic random routing and the upstream `inflight-load.yaml` llm-d configuration. The browser replays recorded output; animation speed and pausing do not affect the simulation.
+The comparison runs BLIS v0.12.0 twice over matched single-turn workloads or multi-turn sessions. It models basic random routing and the upstream `inflight-load.yaml` llm-d configuration. The browser replays recorded output; animation speed and pausing do not affect the simulation.
 
 ## Supported deployment
 
@@ -25,7 +25,23 @@ The Go server embeds the snapshot and uses it for both selector metadata and val
 
 The default has 256 requests at 40 requests per second, mean 256 input tokens plus a 512-token shared prefix, mean 256 output tokens, and seed 42. Input and output lengths follow bounded Gaussian distributions with 25% standard deviation, minimum 16 tokens, and maximum twice the configured mean. Arrivals are Poisson. The presets are custom synthetic examples inspired by BLIS's catalog; their distributions are not claimed to be production traces or exact copies of catalog presets.
 
-Both runs receive the same YAML and seed. The service checks every recorded arrival for identical request ID, timestamp, input count, and output count, and checks the number of arrivals against the requested count. A mismatch fails the comparison.
+Both runs receive the same YAML and seed. Single-turn comparisons check every recorded arrival for identical request ID, timestamp, token counts, and SHA-256 hashes of the actual input/output token sequences. A missing request or content mismatch fails the comparison.
+
+### Code generation
+
+The code preset has 64 requests at 12 requests/second, mean 1,024 new input tokens plus a 2,048-token shared repository context, and mean 2,048 output tokens. Output length can reach 4,096 tokens under the bounded distribution. This models long decode phases; it does not execute code or measure generated-code quality.
+
+### Multi-turn agents
+
+The agent preset uses a BLIS cohort with one session per member (`single_session: true`), `closed_loop: true`, `context_growth: accumulate`, and independent prefixes (`prefix_sharing: per_member`). Defaults: 16 sessions, four turns, mean 256 new input and 256 output tokens per turn, 1,024 initial context tokens, 500 ms between turns, and 1,000 ms mean initial delay. Each session draws one exponential start delay; the cohort aggregate rate is `sessions × 1000 / meanStartMs` because BLIS divides it among the members. This is a finite population, not an imposed rate on follow-up requests.
+
+A follow-up is generated only after the previous engine completion plus the pause. Both policies share initial start times, session identity, token demands, and actual token content. Later arrivals may differ as a consequence of policy performance. BLIS follow-up request IDs include a completion-order counter; pairing uses `(sessionId, roundIndex)` while preserving the original IDs for raw metrics and routing traces. The service checks every turn's causal time and hashes the retained context to verify continuity.
+
+**Pinned BLIS accumulation detail:** in v0.12.0, `SessionManager.OnComplete` retains `ProgressIndex - InputLen` output tokens, while completed-token metrics include the token sampled at prefill completion as well. For these uncapped sessions, retained output is one token shorter than generated output. The observer records that actual retention boundary at completion without changing BLIS behavior. `retainedOutputTokens`, `historyTokens`, `historyHash`, and `contextHash` make it explicit in the export; the inspector shows the actual retained context.
+
+Supported agents have 1–64 sessions, 2–8 turns, pauses of 0–5,000 ms, and mean starts of 10–30,000 ms. Per-request simulation timeouts are disabled so a slower policy can finish its sessions; the API's wall-clock limit still applies. A conservative upper bound, `initialContext + 2 × turns × (newInputMean + outputMean)`, must fit the 32,768-token engine limit. This prevents truncation from changing token demands across policies. Tool execution, branching, reasoning quality, and context compaction are not modeled.
+
+Exports include `fairness.mode` (`identical-arrivals` or `matched-sessions`), `matchedRequests`, and `identicalArrivalTimes`. The legacy `identicalInputs` field retains its stronger meaning of matched tokens **and** identical arrival times, so it can be false for a valid matched-session comparison.
 
 The two routing configurations are committed in `configs/`. Prefix caching and all engine settings are the same on both sides. The basic configuration is an explicit random-picker policy inside the embedded llm-d framework; it is not a measurement of an independently deployed proxy.
 
@@ -56,7 +72,7 @@ Progress snapshots are sampled at approximately 50 ms intervals of simulated tim
 
 BLIS internal event clocks are microseconds. The UI converts them to seconds for playback and milliseconds for request durations. Per-request and aggregate latency fields in BLIS's metrics JSON are already milliseconds.
 
-The latency table uses the completed-request aggregates from the metrics file. It reports failed and unfinished counts alongside them. Throughput divides completed output tokens by a common window from time zero to the later end of the two runs, including recorded client-visible response timing. It does not compare two different throughput denominators or silently use stdout aggregates.
+The latency table uses the completed-request aggregates from the metrics file. Agent session p95 is the nearest-rank percentile of each completed session’s final client-visible response minus its first arrival, including inter-turn pauses. It reports failed and unfinished counts alongside them. Throughput divides completed output tokens by a common window from time zero to the later end of the two runs, including recorded client-visible response timing. It does not compare two different throughput denominators or silently use stdout aggregates.
 
 Full-run metrics are labeled and remain fixed during playback. The inspector marks future lifecycle events as upcoming; its final timing and score details are explicitly recorded full-run information.
 
@@ -64,12 +80,14 @@ Each run directory retains the common workload, scenario, router YAML, executed 
 
 ## Current boundary
 
-The simulator covers single-turn chat and summarization on the nine supported deployments. Additional GPUs/models, multi-GPU replicas, multi-turn agents, code generation presets, burstiness controls, prefill/decode pools, capacity sweeps, and SLO summaries remain later milestones. It runs as a local development tool; hosted multi-user execution and deployment automation are not implemented.
+The simulator covers chat, summarization, code generation, and multi-turn agents on the nine supported deployments. Additional GPUs/models, multi-GPU replicas, burstiness controls, prefill/decode pools, capacity sweeps, and SLO summaries remain later milestones. It runs as a local development tool; hosted multi-user execution and deployment automation are not implemented.
 
 ## Sources
 
 - [Pinned BLIS release](https://github.com/inference-sim/inference-sim/tree/v0.12.0)
 - [Routing configurations and model limitations](https://github.com/inference-sim/inference-sim/blob/v0.12.0/docs/guide/routing.md)
 - [Upstream in-flight load configuration](https://github.com/inference-sim/inference-sim/blob/v0.12.0/examples/llm-d/inflight-load.yaml)
+- [Multi-turn workloads](https://github.com/inference-sim/inference-sim/blob/v0.12.0/docs/guide/workloads.md#multi-turn-conversations)
+- [Closed-loop session implementation](https://github.com/inference-sim/inference-sim/blob/v0.12.0/sim/workload/session.go)
 - [Metric definitions](https://github.com/inference-sim/inference-sim/blob/v0.12.0/docs/guide/results.md)
 - [Progress snapshot interface](https://github.com/inference-sim/inference-sim/blob/v0.12.0/sim/progress_hook.go)

@@ -145,7 +145,7 @@ Retain the provenance reported by the kernel. Identify measured, vendor-specifie
 | 3. Workload exploration | Four editable presets, supported model/GPU selection, and results summary | Edits produce new BLIS runs with visible assumptions and internally consistent metrics |
 | 4. Prefill/decode exploration | Optional separate prefill and decode pools with visible KV transfers | Comparison preserves total hardware allocation and includes transfer costs and correct parent-request accounting |
 
-The first implementation milestone proves one trustworthy end-to-end comparison before expanding the interface.
+Milestones 1–3 are implemented: pinned BLIS comparisons, synchronized inspection, four editable workloads, and matched model/GPU selection. Prefill/decode exploration remains the next milestone.
 
 ## Critical checks
 

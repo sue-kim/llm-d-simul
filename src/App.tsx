@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Comparison, Config, DeploymentOptions, Event, Side, Stage } from './types';
-import { formatMs, formatNumber, requestStates, snapshotAt } from './playback';
+import { formatMs, formatNumber, requestKey, requestLabel, requestStates, sessionDurations, snapshotAt } from './playback';
 
-const defaults: Config = { workload: 'chat', model: 'llama-3.1-8b-instruct', hardware: 'h100', instances: 4, requests: 256, rate: 40, inputTokens: 256, outputTokens: 256, prefixTokens: 512, seed: 42 };
+const defaults: Config = { workload: 'chat', model: 'llama-3.1-8b-instruct', hardware: 'h100', instances: 4, requests: 256, rate: 40, inputTokens: 256, outputTokens: 256, prefixTokens: 512, seed: 42, sessions: 16, turns: 4, thinkTimeMs: 500, meanStartMs: 1000 };
+const workloadPresets = {
+  chat: {label: 'Chat', description: 'Short prompts, streaming replies', inputTokens: 256, outputTokens: 256, prefixTokens: 512, requests: 256, rate: 40},
+  summarization: {label: 'Summarization', description: 'Long documents, shorter answers', inputTokens: 4096, outputTokens: 512, prefixTokens: 0, requests: 256, rate: 40},
+  code: {label: 'Code generation', description: 'Repository context, long outputs', inputTokens: 1024, outputTokens: 2048, prefixTokens: 2048, requests: 64, rate: 12},
+  agents: {label: 'Multi-turn agents', description: 'Repeated context, sequential turns', inputTokens: 256, outputTokens: 256, prefixTokens: 1024, requests: 64, rate: 16},
+};
 const stageLabel: Record<Stage, string> = { arrived: 'Arrived', routed: 'Preparing input', queued: 'Queued', processing: 'Processing', streaming: 'Streaming', completed: 'Finished', preempted: 'Queued again', timed_out: 'Timed out' };
 const active = (e: Event) => e.kind === 'processing' || e.kind === 'streaming';
 const waiting = (e: Event) => e.kind === 'queued' || e.kind === 'preempted';
@@ -35,6 +41,9 @@ export function App() {
   const requestController = useRef<AbortController | null>(null);
   const end = result?.endTimeUs ?? 1;
   const changed = !!result && JSON.stringify(config) !== JSON.stringify(result.config);
+  const agents = config.workload === 'agents';
+  const contextBudget = config.prefixTokens + 2 * config.turns * (config.inputTokens + config.outputTokens);
+  const contextError = agents && contextBudget > (deployments?.contextLimit ?? 32768);
   const selectedModel = deployments?.models.find(model => model.id === config.model);
   const selectedHardware = deployments?.hardware.find(hardware => hardware.id === config.hardware);
   const resultHardware = result ? result.deployment?.hardware.shortLabel ?? result.config.hardware : selectedHardware?.shortLabel ?? 'GPU';
@@ -71,7 +80,9 @@ export function App() {
       const response = await fetch('/api/compare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config), signal: ctrl.signal });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Simulation failed. Try a smaller workload.');
-      setResult(data); setTime(0); setPlaying(!window.matchMedia('(prefers-reduced-motion: reduce)').matches); setSelected(data.basic.playback.events.find((e: Event) => e.kind === 'arrived')?.requestId ?? '');
+      setResult(data); setTime(0); setSearch(''); setPlaying(!window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+      const first = data.basic.playback.events.find((e: Event) => e.kind === 'arrived');
+      setSelected(first ? requestKey(first) : '');
     } catch (e) { if (e instanceof Error && e.name !== 'AbortError') setError(e.message); }
     finally { setBusy(false); }
   }
@@ -81,17 +92,21 @@ export function App() {
     if (!model) return;
     setConfig(c => ({ ...c, model: modelId, hardware: model.hardwareIds.includes(c.hardware) ? c.hardware : model.hardwareIds[0] }));
   }
-  function preset(workload: Config['workload']) { setConfig(c => ({ ...c, workload, inputTokens: workload === 'chat' ? 256 : 4096, outputTokens: workload === 'chat' ? 256 : 512, prefixTokens: workload === 'chat' ? 512 : 0 })); }
+  function preset(workload: Config['workload']) {
+    const {inputTokens, outputTokens, prefixTokens, requests, rate} = workloadPresets[workload];
+    setConfig(c => ({...c, workload, inputTokens, outputTokens, prefixTokens, requests, rate, sessions: 16, turns: 4, thinkTimeMs: 500, meanStartMs: 1000}));
+  }
   function download() {
     if (!result) return;
     const url = URL.createObjectURL(new Blob([JSON.stringify(result, null, 2)], { type: 'application/json' }));
     const link = document.createElement('a'); link.href = url; link.download = `llmd-comparison-${result.id}.json`; link.click(); URL.revokeObjectURL(url);
   }
   const allRequests = useMemo(() => result?.basic.playback.events.filter(e => e.kind === 'arrived') ?? [], [result]);
-  const filtered = allRequests.filter(e => e.requestId.toLowerCase().includes(search.toLowerCase()));
+  const filtered = allRequests.filter(e => `${requestLabel(e)} ${e.requestId}`.toLowerCase().includes(search.toLowerCase()));
   const states = useMemo(() => ({ basic: requestStates(result?.basic.playback.events ?? [], time), llmd: requestStates(result?.llmd.playback.events ?? [], time) }), [result, time]);
   const visibleRequests = filtered.slice(0, 24);
-  const selectedEvent = allRequests.find(e => e.requestId === selected);
+  const selectedEvent = allRequests.find(e => requestKey(e) === selected);
+  const sessionTurns = selectedEvent?.sessionId ? allRequests.filter(e => e.sessionId === selectedEvent.sessionId).sort((a,b) => a.roundIndex-b.roundIndex) : [];
 
   return <div className="app">
     <header className="topbar">
@@ -104,16 +119,27 @@ export function App() {
           <fieldset disabled={busy || !ready}>
             <h2>Workload</h2><p className="section-help">Start with an example. Make it yours.</p>
             <div className="preset-options" aria-label="Workload examples">
-              <button type="button" aria-pressed={config.workload === 'chat'} onClick={() => preset('chat')}><strong>Chat</strong><span>Short prompts, streaming replies</span></button>
-              <button type="button" aria-pressed={config.workload === 'summarization'} onClick={() => preset('summarization')}><strong>Summarization</strong><span>Long documents, shorter answers</span></button>
+              {(Object.keys(workloadPresets) as Config['workload'][]).map(id => <button type="button" key={id} aria-pressed={config.workload === id} onClick={() => preset(id)}><strong>{workloadPresets[id].label}</strong><span>{workloadPresets[id].description}</span></button>)}
             </div>
-            <div className="paired-fields"><NumberField label="Input tokens" value={config.inputTokens} min={16} max={8192} onChange={v => update('inputTokens', v)} /><NumberField label="Output tokens" value={config.outputTokens} min={16} max={2048} onChange={v => update('outputTokens', v)} /></div>
-            <NumberField label="Shared prefix tokens" value={config.prefixTokens} min={0} max={4096} onChange={v => update('prefixTokens', v)} />
-            <p className="field-help">Added to each input. Models a shared system prompt or document context.</p>
+            <div className="paired-fields"><NumberField label={agents ? 'New input / turn' : 'Input tokens'} value={config.inputTokens} min={16} max={8192} onChange={v => update('inputTokens', v)} /><NumberField label={agents ? 'Output / turn' : 'Output tokens'} value={config.outputTokens} min={16} max={2048} onChange={v => update('outputTokens', v)} /></div>
+            <p className="field-help">Mean token lengths; each request varies around these values.</p>
+            <NumberField label={agents ? 'Initial context tokens' : 'Shared prefix tokens'} value={config.prefixTokens} min={0} max={4096} onChange={v => update('prefixTokens', v)} />
+            <p className="field-help">{agents ? 'Unique to each agent. Prior inputs and outputs accumulate across its turns.' : 'Added to each input. Models a shared system prompt or document context.'}</p>
+            {agents ? <>
+              <div className="paired-fields"><NumberField label="Agent sessions" value={config.sessions} min={1} max={64} onChange={v => update('sessions', v)} /><NumberField label="Turns / session" value={config.turns} min={2} max={8} onChange={v => update('turns', v)} /></div>
+              <NumberField label="Pause between turns (ms)" value={config.thinkTimeMs} min={0} max={5000} onChange={v => update('thinkTimeMs', v)} />
+              <p className="field-help">Starts after the previous response finishes. Models time spent between model calls.</p>
+              <NumberField label="Mean start delay (ms)" value={config.meanStartMs} min={10} max={30000} onChange={v => update('meanStartMs', v)} />
+              <p className="field-help">Exponential session starts. Lower values bring agents online closer together.</p>
+              <p className="workload-note">{config.sessions * config.turns} requests · {config.sessions} independent sessions</p>
+              {contextError && <p className="context-error" role="alert">Context could reach {contextBudget.toLocaleString()} tokens. Reduce turns or token lengths to stay within {(deployments?.contextLimit ?? 32768).toLocaleString()}.</p>}
+              <NumberField label="Seed" value={config.seed} min={0} max={1000000} onChange={v => update('seed', v)} />
+            </> : <>
             <label className="range-label" htmlFor="traffic">Traffic <strong>{config.rate} <span>req/s</span></strong></label>
             <input id="traffic" type="range" min="1" max="300" value={config.rate} onChange={e => update('rate', +e.target.value)} />
             <div className="range-ends"><span>1 req/s</span><span>300 req/s</span></div>
             <div className="paired-fields"><NumberField label="Requests" value={config.requests} min={16} max={1024} onChange={v => update('requests', v)} /><NumberField label="Seed" value={config.seed} min={0} max={1000000} onChange={v => update('seed', v)} /></div>
+            </>}
             <div className="settings-divider" />
             <h2>Infrastructure</h2><p className="section-help">Your selection applies to both sides.</p>
             <div className="model-setting">
@@ -126,7 +152,7 @@ export function App() {
             </div>
             <label className="field">Instances<select value={config.instances} onChange={e => update('instances', +e.target.value)}>{[2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n} instances · {n} GPUs</option>)}</select></label>
             <p className="field-help">{config.instances} × {selectedHardware?.shortLabel ?? 'GPU'} per side. Same model, precision, and GPU count.</p>
-            <button className="run-button" type="submit" disabled={!ready || busy}>{busy ? <span className="spinner" /> : <Icon name="play" />} {busy ? 'Running BLIS…' : 'Run comparison'}</button>
+            <button className="run-button" type="submit" disabled={!ready || busy || contextError}>{busy ? <span className="spinner" /> : <Icon name="play" />} {busy ? 'Running BLIS…' : 'Run comparison'}</button>
             <p className="run-note">Runs locally on your CPU. No GPUs required.</p>
           </fieldset>
         </form>
@@ -135,7 +161,8 @@ export function App() {
       <main>
         <div className="page-heading"><div><h1>Compare inference routing</h1><p>One workload. Two routing strategies. Follow every request.</p></div><button className="text-button export" disabled={!result || busy} onClick={download}><Icon name="download" />Export run</button></div>
         {error && <div className="error" role="alert"><strong>Couldn’t complete the comparison</strong><p>{error}</p></div>}
-        <div className="comparison-context"><span className="verified-dot" /><span>{result ? `${result.config.requests} identical requests · ${result.deployment?.model.label ?? result.config.model} · ${result.config.instances} ${resultHardware} GPUs per side` : 'Matched requests, model, hardware, and engine settings'}</span><span className="synthetic-label">Synthetic workload</span></div>
+        <div className="comparison-context"><span className="verified-dot" /><span>{result ? `${workloadPresets[result.config.workload].label} · ${result.fairness.matchedRequests} matched requests · ${result.deployment.model.label} · ${result.config.instances} ${resultHardware} GPUs per side` : 'Matched requests, model, hardware, and engine settings'}</span><span className="synthetic-label">Synthetic workload</span></div>
+        {result?.config.workload === 'agents' && <p className="session-note">{result.config.sessions} agents × {result.config.turns} turns. Same starting contexts and token content; each next turn waits for its own response + {result.config.thinkTimeMs} ms. Later arrivals can differ between sides.</p>}
         {changed && <p className="changed-note" role="status">Settings changed. Run again to update the comparison below.</p>}
         {busy && <div className="busy-note" role="status"><span className="spinner" /><span>Computing both BLIS runs. Playback will be ready when they finish.</span></div>}
         <section className="comparison" aria-label="Side-by-side simulation">
@@ -159,23 +186,28 @@ export function App() {
         <section className="inspection-section" aria-labelledby="inspector-title">
           <div className="section-heading"><h2 id="inspector-title">Inspect a request</h2><span>Select a request on either side to follow its path.</span></div>
           <div className="inspection-grid">
-            <div className="request-list"><label className="search-label">Find request<input type="search" placeholder="Search request ID" value={search} onChange={e => setSearch(e.target.value)} disabled={!result} /></label>
+            <div className="request-list"><label className="search-label">Find request<input type="search" placeholder={result?.config.workload === 'agents' ? 'Search agent or turn' : 'Search request ID'} value={search} onChange={e => setSearch(e.target.value)} disabled={!result} /></label>
               <div className="request-table-head"><span>Request</span><span>Basic</span><span>llm-d</span></div>
-              <div className="request-rows">{visibleRequests.map(e => <button key={e.requestId} aria-pressed={selected === e.requestId} onClick={() => setSelected(e.requestId)}><span className="request-id">{e.requestId}</span><StageTag event={states.basic.get(e.requestId)} /><StageTag event={states.llmd.get(e.requestId)} /></button>)}{!visibleRequests.length && <p className="empty-copy">{result ? 'No requests match this ID.' : 'Requests appear here after your first run.'}</p>}</div>
-              {!!allRequests.length && <p className="table-foot">Showing {visibleRequests.length} of {filtered.length} requests. Search to inspect any ID.</p>}
+              <div className="request-rows">{visibleRequests.map(e => <button key={requestKey(e)} aria-pressed={selected === requestKey(e)} onClick={() => setSelected(requestKey(e))}><span className="request-id">{requestLabel(e)}</span><StageTag event={states.basic.get(requestKey(e))} /><StageTag event={states.llmd.get(requestKey(e))} /></button>)}{!visibleRequests.length && <p className="empty-copy">{result ? 'No requests match this search.' : 'Requests appear here after your first run.'}</p>}</div>
+              {!!allRequests.length && <p className="table-foot">Showing {visibleRequests.length} of {filtered.length} requests. Search to inspect any request.</p>}
             </div>
             <div className="request-detail">{result && selectedEvent ? <>
-              <div className="detail-title"><strong>{selected}</strong><span>{selectedEvent.inputTokens.toLocaleString()} input · {selectedEvent.outputTokens.toLocaleString()} output tokens</span></div>
+              <div className="detail-title"><strong>{requestLabel(selectedEvent)}</strong><span>{selectedEvent.inputTokens.toLocaleString()} input · {selectedEvent.outputTokens.toLocaleString()} output tokens</span></div>
+              {sessionTurns.length > 0 && <>
+                <nav className="turn-navigation" aria-label="Session turns">{sessionTurns.map(e => <button key={requestKey(e)} aria-pressed={requestKey(e) === selected} onClick={() => setSelected(requestKey(e))}>Turn {e.roundIndex + 1}</button>)}</nav>
+                <div className="context-breakdown"><span><b>{(selectedEvent.historyTokens ?? 0).toLocaleString()}</b> {selectedEvent.roundIndex === 0 ? 'initial context' : 'retained context'}</span><span>+ <b>{(selectedEvent.inputTokens - (selectedEvent.historyTokens ?? 0)).toLocaleString()}</b> new input</span><span>→ <b>{selectedEvent.outputTokens.toLocaleString()}</b> output tokens</span></div>
+              </>}
               <div className="detail-sides"><RequestDetail side={result.basic} requestId={selected} current={states.basic.get(selected)} time={time} /><RequestDetail side={result.llmd} requestId={selected} current={states.llmd.get(selected)} time={time} /></div>
             </> : <div className="inspector-empty"><Icon name="route" size={30} /><h3>See what a request waited for.</h3><p>Inspect its recorded queue time, assigned instance, and routing decision in both runs.</p></div>}</div>
           </div>
         </section>
         <details className="methodology"><summary>How this comparison works <span>BLIS v0.12.0</span></summary><div>
           <p>Basic routing uses random selection; llm-d uses the upstream in-flight load configuration. Both execute inside BLIS’s embedded llm-d router, with the same engine settings and cold caches. These are simulated policy results, with zero router decision time.</p>
-          <p>Input and output lengths use bounded synthetic distributions with 25% standard deviation. Shared context is added to each input. Chat and summarization are editable examples inspired by the BLIS catalog, rather than production traces.</p>
+          <p>Input and output lengths use bounded synthetic distributions with 25% standard deviation. Shared context is added to each input. Chat, summarization, and code generation are editable synthetic examples using BLIS workload distributions. Code generation emphasizes long output sequences; no real code is executed or evaluated.</p>
+          <p>Multi-turn agents use BLIS closed-loop sessions. Each session has its own initial context, accumulates prior input and output context, and waits for the prior engine completion plus the configured pause. Session starts and token hashes match across policies; later arrival times respond to each policy’s performance. The pinned BLIS session manager retains one fewer output token per turn than its generated-token metric; the inspector shows the actual retained amount. Pauses stand in for work between model calls; tool execution, branching, and reasoning quality are not modeled. Configurations that could exceed the engine context limit are refused.</p>
           <p>Model and GPU options come from the pinned BLIS catalog and have been exercised in this simulator. All use BF16 weights and KV cache, one GPU per instance, and a 32,768-token engine limit. GPU memory values follow the catalog’s modeled capacity in GiB. These checks establish compatibility; accuracy depends on BLIS’s coefficient coverage for the selected deployment.</p>
           <p>Request transitions are recorded from the engine. Gauges use snapshots approximately every 50 ms. “Processing” includes prompt processing; “streaming” begins at the recorded first token. Full run metrics remain fixed while you replay.</p>
-          {result && <><p>Run <code>{result.id}</code> · Seed {result.config.seed} · Identical arrivals and token demands verified.</p><dl className="pins">{Object.entries(result.provenance.repositories).map(([name,pin]) => <div key={name}><dt>{name}</dt><dd><a target="_blank" rel="noreferrer" href={`https://github.com/inference-sim/${name}/commit/${pin.commit}`}>{pin.tag} · {pin.commit.slice(0,12)}</a></dd></div>)}</dl><p>Kernel inputs include measured, vendor-specified, and assumed coefficients. Full provenance and raw decisions are included in the exported run.</p></>}
+          {result && <><p>Run <code>{result.id}</code> · Seed {result.config.seed} · {result.fairness.mode === 'matched-sessions' ? 'Matched sessions, token content, and context continuity verified.' : 'Identical arrivals and token content verified.'}</p><dl className="pins">{Object.entries(result.provenance.repositories).map(([name,pin]) => <div key={name}><dt>{name}</dt><dd><a target="_blank" rel="noreferrer" href={`https://github.com/inference-sim/${name}/commit/${pin.commit}`}>{pin.tag} · {pin.commit.slice(0,12)}</a></dd></div>)}</dl><p>Kernel inputs include measured, vendor-specified, and assumed coefficients. Full provenance and raw decisions are included in the exported run.</p></>}
           <a href="https://github.com/inference-sim/inference-sim/blob/v0.12.0/docs/guide/routing.md" target="_blank" rel="noreferrer">Read the BLIS routing methodology ↗</a>
         </div></details>
         <footer>Built to explore tradeoffs. Validate promising configurations against your deployment.</footer>
@@ -206,10 +238,10 @@ function Cluster({title,description,variant,side,instances,hardware,states,time,
       const q=events.filter(waiting), inFlight=events.filter(active);
       const s=snap?.InstanceSnapshots.find(s=>s.ID===id);
       const tokens=[...q,...inFlight];
-      return <div className={`instance ${tokens.some(e=>e.requestId===selected) ? 'has-selection' : ''}`} key={id}>
+      return <div className={`instance ${tokens.some(e=>requestKey(e)===selected) ? 'has-selection' : ''}`} key={id}>
         <div className="instance-heading"><Icon name="chip" size={17}/><strong>Instance {index+1}</strong><span className={inFlight.length ? 'instance-active' : ''}>{inFlight.length ? 'Active' : 'Idle'}</span></div>
         <div className="instance-counts"><span><b>{q.length}</b> queued</span><span><b>{inFlight.length}</b> running</span></div>
-        <div className="request-dots" aria-label={`Requests on instance ${index+1}`}>{tokens.slice(0,30).map(e=><button key={e.requestId} className={`${waiting(e)?'dot-queued':'dot-active'} ${e.requestId===selected?'dot-selected':''}`} aria-label={`${e.requestId}, ${stageLabel[e.kind]}`} title={`${e.requestId} · ${stageLabel[e.kind]}`} onClick={()=>onSelect(e.requestId)}/>)}{tokens.length>30&&<span className="more-dots">+{tokens.length-30}</span>}{!tokens.length&&<span className="no-requests">{side ? 'No active requests' : 'Ready for requests'}</span>}</div>
+        <div className="request-dots" aria-label={`Requests on instance ${index+1}`}>{tokens.slice(0,30).map(e=><button key={e.requestId} className={`${waiting(e)?'dot-queued':'dot-active'} ${requestKey(e)===selected?'dot-selected':''}`} aria-label={`${requestLabel(e)}, ${stageLabel[e.kind]}`} title={`${requestLabel(e)} · ${stageLabel[e.kind]}`} onClick={()=>onSelect(requestKey(e))}/>)}{tokens.length>30&&<span className="more-dots">+{tokens.length-30}</span>}{!tokens.length&&<span className="no-requests">{side ? 'No active requests' : 'Ready for requests'}</span>}</div>
         <div className="cache-label"><span>KV cache</span><span>{((s?.KVUtilization??0)*100).toFixed(1)}%</span></div><div className="cache-meter"><span style={{width:`${Math.min(100,(s?.KVUtilization??0)*100)}%`}} /></div>
       </div>;
     })}</div>
@@ -227,6 +259,13 @@ function Results({result}: {result?:Comparison}) {
     {label:'Output throughput',a:basic?basic.total_output_tokens/seconds:undefined,b:llmd?llmd.total_output_tokens/seconds:undefined,format:n=>n==null?'—':`${formatNumber(n)} tok/s`},
     {label:'Prefix cache hit rate',a:basic?.cache_hit_rate,b:llmd?.cache_hit_rate,format:n=>n==null?'—':`${(n*100).toFixed(1)}%`},
   ];
+  if (result?.config.workload === 'agents') {
+    const p95 = (side: Side) => {
+      const durations = [...sessionDurations(side).values()].filter(s => s.turns === result.config.turns).map(s => s.end-s.start).sort((a,b) => a-b);
+      return durations.length ? durations[Math.ceil(durations.length * .95)-1] : undefined;
+    };
+    rows.push({label: 'Agent session time · p95', a: p95(result.basic), b: p95(result.llmd), format: formatMs, lower: true});
+  }
   return <div className="metrics-table"><table><thead><tr><th>Metric</th><th>Basic</th><th>llm-d</th><th>Difference</th></tr></thead><tbody>{rows.map(r=>{
     const delta=r.a!=null&&r.b!=null&&r.a!==0?(r.b-r.a)/r.a*100:null;
     const better=delta!=null&&(r.lower?delta<-.1:delta>.1);
@@ -235,14 +274,16 @@ function Results({result}: {result?:Comparison}) {
 }
 
 function RequestDetail({side,requestId,current,time}: {side:Side;requestId:string;current?:Event;time:number}) {
-  const metric=side.metrics.requests?.find(r=>r.requestID===requestId);
-  const routing=side.playback.decisions.Routings?.find(r=>r.RequestID===requestId);
-  const events=side.playback.events.filter(e=>e.requestId===requestId);
+  const request = side.playback.events.find(e => e.kind === 'arrived' && requestKey(e) === requestId);
+  const rawId = request?.requestId;
+  const metric=side.metrics.requests?.find(r=>r.requestID===rawId);
+  const routing=side.playback.decisions.Routings?.find(r=>r.RequestID===rawId);
+  const events=side.playback.events.filter(e=>e.requestId===rawId);
   const arrival=events.find(e=>e.kind==='arrived')?.timeUs??0;
   let queueStart: number | undefined, queueWait = 0;
   for (const event of events) { if (event.kind === 'queued' || event.kind === 'preempted') queueStart = event.timeUs; if (queueStart != null && ['processing','timed_out'].includes(event.kind)) { queueWait += event.timeUs - queueStart; queueStart = undefined; } }
-  return <div className={`detail-side ${side.policy}`}><h3>{side.policy==='basic'?'Basic':'llm-d'}</h3><StageTag event={current}/><dl><div><dt>Assigned to</dt><dd>{routing?.Clock!=null&&routing.Clock<=time?`Instance ${Number(routing.ChosenInstance.match(/\d+$/)?.[0]??0)+1}`:'Not routed yet'}</dd></div><div><dt>Queue wait · full run</dt><dd>{formatMs(queueWait / 1000)}</dd></div><div><dt>First token · full run</dt><dd>{formatMs(metric?.ttft_ms)}</dd></div></dl>
+  return <div className={`detail-side ${side.policy}`}><h3>{side.policy==='basic'?'Basic':'llm-d'}</h3>{!current && request?.sessionId && request.roundIndex > 0 ? <span className="stage pending">Waiting for prior turn</span> : <StageTag event={current}/>}<dl><div><dt>Arrives at · simulated time</dt><dd>{formatMs(arrival / 1000)}</dd></div><div><dt>Assigned to</dt><dd>{routing?.Clock!=null&&routing.Clock<=time?`Instance ${Number(routing.ChosenInstance.match(/\d+$/)?.[0]??0)+1}`:'Not routed yet'}</dd></div><div><dt>Queue wait · full run</dt><dd>{formatMs(queueWait / 1000)}</dd></div><div><dt>First token · full run</dt><dd>{formatMs(metric?.ttft_ms)}</dd></div></dl>
     <ol className="event-timeline">{events.filter(e=>e.kind!=='preempted').map((e,i)=><li className={e.timeUs<=time?'passed':''} key={i}><span>{stageLabel[e.kind]}</span><time>+{formatMs((e.timeUs-arrival)/1000)}</time></li>)}</ol>
-    <details className="routing-detail"><summary>Recorded routing decision</summary>{routing?<><p>{side.policy==='basic'?'Random selection among available endpoints.':'Selected by the configured weighted endpoint scores. Scores are preferences, not predicted latency.'}</p>{routing.Scores&&<ul>{Object.entries(routing.Scores).map(([id,score])=><li key={id}><span>{id}{id===routing.ChosenInstance?' · selected':''}</span><strong>{score.toFixed(3)}</strong></li>)}</ul>}</>:<p>No routing record available.</p>}</details>
+    <details className="routing-detail"><summary>Recorded routing decision</summary>{routing?<><p className="raw-request-id">BLIS request: {rawId}</p><p>{side.policy==='basic'?'Random selection among available endpoints.':'Selected by the configured weighted endpoint scores. Scores are preferences, not predicted latency.'}</p>{routing.Scores&&<ul>{Object.entries(routing.Scores).map(([id,score])=><li key={id}><span>{id}{id===routing.ChosenInstance?' · selected':''}</span><strong>{score.toFixed(3)}</strong></li>)}</ul>}</>:<p>No routing record available.</p>}</details>
   </div>;
 }

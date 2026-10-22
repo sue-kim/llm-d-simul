@@ -37,6 +37,7 @@ patch("sim/event.go", [
     ("\te.Request.State = StateTimedOut", "\te.Request.State = StateTimedOut\n\tObservePlayback(e.Request, \"timed_out\", e.time)"),
 ])
 patch("sim/simulator.go", [
+    ("\treq.GeneratedTokens = max(outputTokens, 0)", "\treq.GeneratedTokens = max(outputTokens, 0)\n\tObservePlaybackRetainedContext(req)"),
     ("\t\t\tsim.Metrics.RequestTTFTs[req.ID] = float64(req.FirstTokenTime)", "\t\t\tsim.Metrics.RequestTTFTs[req.ID] = float64(req.FirstTokenTime)\n\t\t\tObservePlayback(req, \"streaming\", req.ArrivalTime+req.FirstTokenTime)"),
 ])
 patch("sim/batch_formation.go", [

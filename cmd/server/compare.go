@@ -11,12 +11,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"strconv"
 	"strings"
 )
 
-const adapterVersion = "1"
+const adapterVersion = "2"
 
 type Config struct {
 	Workload     string  `json:"workload"`
@@ -29,15 +28,19 @@ type Config struct {
 	OutputTokens int     `json:"outputTokens"`
 	PrefixTokens int     `json:"prefixTokens"`
 	Seed         int     `json:"seed"`
+	Sessions     int     `json:"sessions"`
+	Turns        int     `json:"turns"`
+	ThinkTimeMs  int     `json:"thinkTimeMs"`
+	MeanStartMs  int     `json:"meanStartMs"`
 }
 
 func defaultConfig() Config {
-	return Config{"chat", "llama-3.1-8b-instruct", "h100", 4, 256, 40, 256, 256, 512, 42}
+	return Config{Workload: "chat", Model: "llama-3.1-8b-instruct", Hardware: "h100", Instances: 4, Requests: 256, Rate: 40, InputTokens: 256, OutputTokens: 256, PrefixTokens: 512, Seed: 42, Sessions: 16, Turns: 4, ThinkTimeMs: 500, MeanStartMs: 1000}
 }
 
 func (c Config) Validate() error {
-	if c.Workload != "chat" && c.Workload != "summarization" {
-		return fmt.Errorf("Choose chat or summarization for this first integration.")
+	if c.Workload != "chat" && c.Workload != "summarization" && c.Workload != "code" && c.Workload != "agents" {
+		return fmt.Errorf("Choose chat, summarization, code generation, or multi-turn agents.")
 	}
 	if _, err := resolveDeployment(c.Model, c.Hardware); err != nil {
 		return err
@@ -57,16 +60,41 @@ func (c Config) Validate() error {
 	if math.IsNaN(c.Rate) || math.IsInf(c.Rate, 0) || c.Rate < 1 || c.Rate > 300 {
 		return fmt.Errorf("Traffic must be between 1 and 300 requests per second.")
 	}
+	if c.Workload == "agents" {
+		for _, b := range []struct {
+			name            string
+			value, min, max int
+		}{
+			{"Agent sessions", c.Sessions, 1, 64}, {"Turns per session", c.Turns, 2, 8},
+			{"Pause between turns", c.ThinkTimeMs, 0, 5000}, {"Mean start delay", c.MeanStartMs, 10, 30000},
+		} {
+			if b.value < b.min || b.value > b.max {
+				return fmt.Errorf("%s must be between %d and %d.", b.name, b.min, b.max)
+			}
+		}
+		if c.PrefixTokens+2*c.Turns*(c.InputTokens+c.OutputTokens) > deploymentOptions.ContextLimit {
+			return fmt.Errorf("Accumulated context can exceed the %d-token engine limit. Reduce turns, new input, output, or initial context.", deploymentOptions.ContextLimit)
+		}
+	}
 	return nil
 }
 
 type Event struct {
-	TimeUs       int64  `json:"timeUs"`
-	RequestID    string `json:"requestId"`
-	Kind         string `json:"kind"`
-	InstanceID   string `json:"instanceId,omitempty"`
-	InputTokens  int    `json:"inputTokens"`
-	OutputTokens int    `json:"outputTokens"`
+	TimeUs               int64  `json:"timeUs"`
+	RequestID            string `json:"requestId"`
+	Kind                 string `json:"kind"`
+	InstanceID           string `json:"instanceId,omitempty"`
+	InputTokens          int    `json:"inputTokens"`
+	OutputTokens         int    `json:"outputTokens"`
+	SessionID            string `json:"sessionId,omitempty"`
+	ClientID             string `json:"clientId,omitempty"`
+	RoundIndex           int    `json:"roundIndex"`
+	InputHash            string `json:"inputHash,omitempty"`
+	OutputHash           string `json:"outputHash,omitempty"`
+	ContextHash          string `json:"contextHash,omitempty"`
+	HistoryHash          string `json:"historyHash,omitempty"`
+	HistoryTokens        int    `json:"historyTokens,omitempty"`
+	RetainedOutputTokens int    `json:"retainedOutputTokens,omitempty"`
 }
 type Playback struct {
 	Events    []Event           `json:"events"`
@@ -87,6 +115,7 @@ type Comparison struct {
 	LLMD            Side            `json:"llmd"`
 	EndTimeUs       int64           `json:"endTimeUs"`
 	IdenticalInputs bool            `json:"identicalInputs"`
+	Fairness        Fairness        `json:"fairness"`
 	Provenance      json.RawMessage `json:"provenance"`
 	AdapterVersion  string          `json:"adapterVersion"`
 	Assumptions     []string        `json:"assumptions"`
@@ -107,7 +136,7 @@ func compare(ctx context.Context, root string, config Config) (*Comparison, erro
 	hash.Write(lock)
 	hash.Write(deploymentData)
 	hash.Write([]byte(adapterVersion))
-	for _, name := range []string{"configs/basic-router.yaml", "configs/llmd-router.yaml", "cmd/server/compare.go", "integrations/blis/playback_cmd.go", "integrations/blis/playback_sim.go", "scripts/build-blis.py"} {
+	for _, name := range []string{"configs/basic-router.yaml", "configs/llmd-router.yaml", "cmd/server/compare.go", "cmd/server/workloads.go", "integrations/blis/playback_cmd.go", "integrations/blis/playback_sim.go", "scripts/build-blis.py"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
 		if err != nil {
 			return nil, err
@@ -145,19 +174,14 @@ func compare(ctx context.Context, root string, config Config) (*Comparison, erro
 	if err != nil {
 		return nil, err
 	}
-	arrivals := func(events []Event) []Event {
-		out := []Event{}
-		for _, e := range events {
-			if e.Kind == "arrived" {
-				out = append(out, e)
-			}
-		}
-		return out
+	result.Fairness, err = verifyWorkload(config, result.Basic.Playback.Events, result.LLMD.Playback.Events)
+	if err != nil {
+		return nil, err
 	}
-	a, b := arrivals(result.Basic.Playback.Events), arrivals(result.LLMD.Playback.Events)
-	result.IdenticalInputs = len(a) == config.Requests && reflect.DeepEqual(a, b)
-	if !result.IdenticalInputs {
-		return nil, fmt.Errorf("Comparison refused: request IDs, arrivals, or token demands differed between policies.")
+	result.IdenticalInputs = result.Fairness.IdenticalArrivalTimes
+	if config.Workload == "agents" {
+		result.Assumptions[0] = "Synthetic agent sessions: independent initial contexts, with prior input and output context accumulated within each session. The pinned BLIS session manager retains one fewer output token per turn than its generated-token metric. No real tool execution or output quality is modeled."
+		result.Assumptions = append(result.Assumptions, "Both sides have identical session starts and token content. Each next turn arrives after its own previous engine completion plus the configured pause; later arrival times can differ. Session and turn identify matching requests because BLIS follow-up IDs depend on completion order.")
 	}
 	for _, side := range []Side{result.Basic, result.LLMD} {
 		for _, e := range side.Playback.Events {
@@ -279,6 +303,9 @@ router:
 }
 
 func workload(c Config) string {
+	if c.Workload == "agents" {
+		return agentWorkload(c)
+	}
 	return fmt.Sprintf(`version: "2"
 seed: %d
 aggregate_rate: %g

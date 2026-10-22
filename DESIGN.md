@@ -15,3 +15,7 @@ The comparison is a task interface for developers. Configuration stays on the le
 ## Motion and data
 
 Request markers represent recorded requests. Playback changes the observation time, never simulation results. Full-run metrics do not animate or imply live accumulation. Large request populations show an explicit overflow count.
+
+## Agent workloads
+
+Four workload presets share the same controls. Agent selection replaces request-rate controls with session count, turns, pause, and start delay. The comparison explains why later arrivals can differ. The inspector pairs agent/turn identities, provides turn navigation, and separates retained context, new input, and output tokens. Full-run session duration includes pauses; the two policy clocks stay synchronized.
