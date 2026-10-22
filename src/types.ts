@@ -3,6 +3,10 @@ export type Config = {
   instances: number; requests: number; rate: number; inputTokens: number;
   outputTokens: number; prefixTokens: number; seed: number;
 };
+export type ModelOption = { id: string; label: string; nativeContextTokens: number; hardwareIds: string[] };
+export type HardwareOption = { id: string; label: string; shortLabel: string; memoryGiB: number };
+export type DeploymentOptions = { catalogCommit: string; precision: string; contextLimit: number; gpusPerInstance: number; models: ModelOption[]; hardware: HardwareOption[] };
+export type Deployment = { model: ModelOption; hardware: HardwareOption; precision: string; contextLimit: number; gpusPerInstance: number };
 export type Stage = 'arrived' | 'routed' | 'queued' | 'processing' | 'streaming' | 'completed' | 'preempted' | 'timed_out';
 export type Event = { timeUs: number; requestId: string; kind: Stage; instanceId?: string; inputTokens: number; outputTokens: number };
 export type InstanceSnapshot = { ID: string; QueueDepth: number; BatchSize: number; KVUtilization: number; CacheHitRate: number; CompletedRequests: number; PreemptionCount: number };
@@ -17,4 +21,4 @@ export type Metrics = {
   kernel_provenance?: Record<string, { method_counts: Record<string, number>; assumptions: unknown[] }>;
 };
 export type Side = { policy: string; metrics: Metrics; playback: { events: Event[]; snapshots: Snapshot[]; decisions: { Routings: Routing[] } }; log: string };
-export type Comparison = { id: string; config: Config; basic: Side; llmd: Side; endTimeUs: number; identicalInputs: boolean; provenance: { go: string; repositories: Record<string, { tag: string; commit: string }> }; adapterVersion: string; assumptions: string[] };
+export type Comparison = { id: string; config: Config; deployment: Deployment; basic: Side; llmd: Side; endTimeUs: number; identicalInputs: boolean; provenance: { go: string; repositories: Record<string, { tag: string; commit: string }> }; adapterVersion: string; assumptions: string[] };

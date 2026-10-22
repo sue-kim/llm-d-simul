@@ -10,7 +10,7 @@ Web application, initially served locally. React and TypeScript frontend; Go API
 
 ## Current scope
 
-The first slice supports a reproducible side-by-side comparison on Llama 3.1 8B and H100 replicas, synchronized playback, request inspection, and exported results. The agreed wider scope is in `docs/PLAN.md`.
+The simulator supports Llama 3.1 8B Instruct, Qwen 2.5 7B Instruct, and Qwen3 14B on A100 80GB, H100, and H200 replicas, synchronized playback, request inspection, and exported results. A shared selection always applies to both policies. Previous results retain their original deployment until another run completes. The agreed wider scope is in `docs/PLAN.md`.
 
 ## Product truth
 

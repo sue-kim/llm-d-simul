@@ -39,11 +39,8 @@ func (c Config) Validate() error {
 	if c.Workload != "chat" && c.Workload != "summarization" {
 		return fmt.Errorf("Choose chat or summarization for this first integration.")
 	}
-	if c.Model != "llama-3.1-8b-instruct" {
-		return fmt.Errorf("The first supported model is Llama 3.1 8B.")
-	}
-	if c.Hardware != "h100" {
-		return fmt.Errorf("The first supported hardware is H100.")
+	if _, err := resolveDeployment(c.Model, c.Hardware); err != nil {
+		return err
 	}
 	for _, b := range []struct {
 		name            string
@@ -85,6 +82,7 @@ type Side struct {
 type Comparison struct {
 	ID              string          `json:"id"`
 	Config          Config          `json:"config"`
+	Deployment      Deployment      `json:"deployment"`
 	Basic           Side            `json:"basic"`
 	LLMD            Side            `json:"llmd"`
 	EndTimeUs       int64           `json:"endTimeUs"`
@@ -95,6 +93,10 @@ type Comparison struct {
 }
 
 func compare(ctx context.Context, root string, config Config) (*Comparison, error) {
+	deployment, err := resolveDeployment(config.Model, config.Hardware)
+	if err != nil {
+		return nil, err
+	}
 	lock, err := os.ReadFile(filepath.Join(root, "blis.lock.json"))
 	if err != nil {
 		return nil, err
@@ -103,6 +105,7 @@ func compare(ctx context.Context, root string, config Config) (*Comparison, erro
 	configJSON, _ := json.Marshal(config)
 	hash.Write(configJSON)
 	hash.Write(lock)
+	hash.Write(deploymentData)
 	hash.Write([]byte(adapterVersion))
 	for _, name := range []string{"configs/basic-router.yaml", "configs/llmd-router.yaml", "cmd/server/compare.go", "integrations/blis/playback_cmd.go", "integrations/blis/playback_sim.go", "scripts/build-blis.py"} {
 		data, err := os.ReadFile(filepath.Join(root, name))
@@ -125,11 +128,11 @@ func compare(ctx context.Context, root string, config Config) (*Comparison, erro
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return nil, err
 	}
-	result := &Comparison{ID: id, Config: config, Provenance: lock, AdapterVersion: adapterVersion,
+	result := &Comparison{ID: id, Config: config, Deployment: deployment, Provenance: lock, AdapterVersion: adapterVersion,
 		Assumptions: []string{
 			"Synthetic workload; input length excludes the separately specified shared prefix.",
 			"Both policies run inside BLIS's embedded llm-d router. Basic routing uses random endpoint selection.",
-			"BF16 model and KV cache; one H100 per replica; cold caches; prefix caching enabled on both sides.",
+			fmt.Sprintf("%s model and KV cache; one %s per replica; cold caches; prefix caching enabled on both sides.", deployment.Precision, deployment.Hardware.ShortLabel),
 			"Router decision time and gateway latency are zero. Estimates include assumed kernel coefficients.",
 			"Playback events are recorded; instance gauges are sampled about every 50 ms of simulated time.",
 			"Completed-request latency percentiles come from BLIS. Throughput uses the same full comparison duration for both sides.",
@@ -267,12 +270,12 @@ pools:
       block_size: 16
       max_num_batched_tokens: 8192
       max_num_seqs: 256
-      max_model_len: 32768
+      max_model_len: %d
       cudagraph_mode: PIECEWISE
       gpu_memory_utilization: 0.9
 router:
   endpoint_picker_config: router.yaml
-`, c.Model, c.Hardware, c.Instances)
+`, c.Model, c.Hardware, c.Instances, deploymentOptions.ContextLimit)
 }
 
 func workload(c Config) string {

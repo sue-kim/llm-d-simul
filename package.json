@@ -12,7 +12,9 @@
     "build": "tsc -b && vite build",
     "start": "sh scripts/go.sh run ./cmd/server",
     "test": "sh scripts/go.sh test ./cmd/server",
-    "test:integration": "node scripts/verify-integration.mjs"
+    "test:integration": "node scripts/verify-integration.mjs",
+    "catalog:sync": "python3 scripts/sync-deployments.py",
+    "test:deployments": "node scripts/verify-deployments.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.2.0",

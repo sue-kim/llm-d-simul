@@ -1,0 +1,58 @@
+{
+  "catalogCommit": "676326ec6c708e91ec4981bd6b03922a7fe60512",
+  "precision": "BF16",
+  "contextLimit": 32768,
+  "gpusPerInstance": 1,
+  "models": [
+    {
+      "id": "llama-3.1-8b-instruct",
+      "label": "Llama 3.1 8B Instruct",
+      "nativeContextTokens": 131072,
+      "hardwareIds": [
+        "a100-80",
+        "h100",
+        "h200"
+      ]
+    },
+    {
+      "id": "qwen2.5-7b-instruct",
+      "label": "Qwen 2.5 7B Instruct",
+      "nativeContextTokens": 32768,
+      "hardwareIds": [
+        "a100-80",
+        "h100",
+        "h200"
+      ]
+    },
+    {
+      "id": "qwen3-14b",
+      "label": "Qwen3 14B",
+      "nativeContextTokens": 40960,
+      "hardwareIds": [
+        "a100-80",
+        "h100",
+        "h200"
+      ]
+    }
+  ],
+  "hardware": [
+    {
+      "id": "a100-80",
+      "label": "NVIDIA A100",
+      "shortLabel": "A100",
+      "memoryGiB": 80.0
+    },
+    {
+      "id": "h100",
+      "label": "NVIDIA H100",
+      "shortLabel": "H100",
+      "memoryGiB": 79.1895752
+    },
+    {
+      "id": "h200",
+      "label": "NVIDIA H200",
+      "shortLabel": "H200",
+      "memoryGiB": 139.80072021
+    }
+  ]
+}

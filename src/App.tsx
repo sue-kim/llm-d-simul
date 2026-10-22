@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Comparison, Config, Event, Side, Stage } from './types';
+import type { Comparison, Config, DeploymentOptions, Event, Side, Stage } from './types';
 import { formatMs, formatNumber, requestStates, snapshotAt } from './playback';
 
 const defaults: Config = { workload: 'chat', model: 'llama-3.1-8b-instruct', hardware: 'h100', instances: 4, requests: 256, rate: 40, inputTokens: 256, outputTokens: 256, prefixTokens: 512, seed: 42 };
@@ -25,6 +25,7 @@ export function App() {
   const [result, setResult] = useState<Comparison>();
   const [busy, setBusy] = useState(false);
   const [ready, setReady] = useState(false);
+  const [deployments, setDeployments] = useState<DeploymentOptions>();
   const [error, setError] = useState('');
   const [time, setTime] = useState(0);
   const [playing, setPlaying] = useState(false);
@@ -34,12 +35,17 @@ export function App() {
   const requestController = useRef<AbortController | null>(null);
   const end = result?.endTimeUs ?? 1;
   const changed = !!result && JSON.stringify(config) !== JSON.stringify(result.config);
+  const selectedModel = deployments?.models.find(model => model.id === config.model);
+  const selectedHardware = deployments?.hardware.find(hardware => hardware.id === config.hardware);
+  const resultHardware = result ? result.deployment?.hardware.shortLabel ?? result.config.hardware : selectedHardware?.shortLabel ?? 'GPU';
 
   useEffect(() => {
     const ctrl = new AbortController();
     fetch('/api/health', { signal: ctrl.signal }).then(r => r.json()).then(data => {
-      setReady(data.ready);
+      setDeployments(data.deployments);
+      setReady(data.ready && !!data.deployments);
       if (!data.ready) setError('BLIS is not installed yet. Run npm run setup in the repository, then reload.');
+      else if (!data.deployments) setError('Restart the simulation API to load the model and GPU options.');
     }).catch(e => { if (e.name !== 'AbortError') setError('The simulation API is unavailable. Start it with npm run dev.'); });
     return () => { ctrl.abort(); requestController.current?.abort(); };
   }, []);
@@ -70,6 +76,11 @@ export function App() {
     finally { setBusy(false); }
   }
   function update<K extends keyof Config>(key: K, value: Config[K]) { setConfig(c => ({ ...c, [key]: value })); }
+  function selectModel(modelId: string) {
+    const model = deployments?.models.find(option => option.id === modelId);
+    if (!model) return;
+    setConfig(c => ({ ...c, model: modelId, hardware: model.hardwareIds.includes(c.hardware) ? c.hardware : model.hardwareIds[0] }));
+  }
   function preset(workload: Config['workload']) { setConfig(c => ({ ...c, workload, inputTokens: workload === 'chat' ? 256 : 4096, outputTokens: workload === 'chat' ? 256 : 512, prefixTokens: workload === 'chat' ? 512 : 0 })); }
   function download() {
     if (!result) return;
@@ -90,7 +101,7 @@ export function App() {
     <div className="workspace">
       <aside className="settings">
         <form onSubmit={e => { e.preventDefault(); void run(); }}>
-          <fieldset disabled={busy}>
+          <fieldset disabled={busy || !ready}>
             <h2>Workload</h2><p className="section-help">Start with an example. Make it yours.</p>
             <div className="preset-options" aria-label="Workload examples">
               <button type="button" aria-pressed={config.workload === 'chat'} onClick={() => preset('chat')}><strong>Chat</strong><span>Short prompts, streaming replies</span></button>
@@ -104,11 +115,17 @@ export function App() {
             <div className="range-ends"><span>1 req/s</span><span>300 req/s</span></div>
             <div className="paired-fields"><NumberField label="Requests" value={config.requests} min={16} max={1024} onChange={v => update('requests', v)} /><NumberField label="Seed" value={config.seed} min={0} max={1000000} onChange={v => update('seed', v)} /></div>
             <div className="settings-divider" />
-            <h2>Infrastructure</h2><p className="section-help">The same allocation on both sides.</p>
-            <div className="model-setting"><span>Model</span><strong>Llama 3.1 8B</strong><small>BF16 · 32K context</small></div>
-            <div className="hardware-setting"><Icon name="chip" size={23} /><div><strong>NVIDIA H100</strong><span>80 GB · one GPU per instance</span></div></div>
+            <h2>Infrastructure</h2><p className="section-help">Your selection applies to both sides.</p>
+            <div className="model-setting">
+              <label className="field">Model<select value={config.model} onChange={e => selectModel(e.target.value)}>{deployments ? deployments.models.map(model => <option key={model.id} value={model.id}>{model.label}</option>) : <option value={config.model}>Loading models…</option>}</select></label>
+              <small>{deployments ? `${deployments.precision} · ${deployments.contextLimit.toLocaleString()} token simulation context` : 'Loading model settings…'}</small>
+            </div>
+            <div className="gpu-setting">
+              <label className="field">GPU<select value={config.hardware} onChange={e => update('hardware', e.target.value)}>{deployments ? deployments.hardware.map(hardware => <option key={hardware.id} value={hardware.id} disabled={!selectedModel?.hardwareIds.includes(hardware.id)}>{hardware.label}</option>) : <option value={config.hardware}>Loading GPUs…</option>}</select></label>
+              <p className="field-help">{selectedHardware ? `${selectedHardware.memoryGiB.toFixed(2)} GiB modeled memory · one GPU per instance` : 'Loading GPU settings…'}</p>
+            </div>
             <label className="field">Instances<select value={config.instances} onChange={e => update('instances', +e.target.value)}>{[2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n} instances · {n} GPUs</option>)}</select></label>
-            <p className="field-help">First integration: this model and GPU. Additional combinations will follow.</p>
+            <p className="field-help">{config.instances} × {selectedHardware?.shortLabel ?? 'GPU'} per side. Same model, precision, and GPU count.</p>
             <button className="run-button" type="submit" disabled={!ready || busy}>{busy ? <span className="spinner" /> : <Icon name="play" />} {busy ? 'Running BLIS…' : 'Run comparison'}</button>
             <p className="run-note">Runs locally on your CPU. No GPUs required.</p>
           </fieldset>
@@ -118,12 +135,12 @@ export function App() {
       <main>
         <div className="page-heading"><div><h1>Compare inference routing</h1><p>One workload. Two routing strategies. Follow every request.</p></div><button className="text-button export" disabled={!result || busy} onClick={download}><Icon name="download" />Export run</button></div>
         {error && <div className="error" role="alert"><strong>Couldn’t complete the comparison</strong><p>{error}</p></div>}
-        <div className="comparison-context"><span className="verified-dot" /><span>{result ? `${result.config.requests} identical requests · ${result.config.instances} H100s per side` : 'Matched requests, model, hardware, and engine settings'}</span><span className="synthetic-label">Synthetic workload</span></div>
+        <div className="comparison-context"><span className="verified-dot" /><span>{result ? `${result.config.requests} identical requests · ${result.deployment?.model.label ?? result.config.model} · ${result.config.instances} ${resultHardware} GPUs per side` : 'Matched requests, model, hardware, and engine settings'}</span><span className="synthetic-label">Synthetic workload</span></div>
         {changed && <p className="changed-note" role="status">Settings changed. Run again to update the comparison below.</p>}
         {busy && <div className="busy-note" role="status"><span className="spinner" /><span>Computing both BLIS runs. Playback will be ready when they finish.</span></div>}
         <section className="comparison" aria-label="Side-by-side simulation">
-          <Cluster title="Basic load balancing" description="Random endpoint selection" variant="basic" side={result?.basic} instances={result?.config.instances ?? config.instances} states={states.basic} time={time} selected={selected} onSelect={setSelected} />
-          <Cluster title="llm-d routing" description="In-flight load, queue, and cache scoring" variant="llmd" side={result?.llmd} instances={result?.config.instances ?? config.instances} states={states.llmd} time={time} selected={selected} onSelect={setSelected} />
+          <Cluster title="Basic load balancing" description="Random endpoint selection" variant="basic" side={result?.basic} instances={result?.config.instances ?? config.instances} hardware={resultHardware} states={states.basic} time={time} selected={selected} onSelect={setSelected} />
+          <Cluster title="llm-d routing" description="In-flight load, queue, and cache scoring" variant="llmd" side={result?.llmd} instances={result?.config.instances ?? config.instances} hardware={resultHardware} states={states.llmd} time={time} selected={selected} onSelect={setSelected} />
         </section>
         <div className="playback-controls" aria-label="Simulation playback">
           <button className="play-button" aria-label={playing ? 'Pause playback' : 'Play playback'} disabled={!result || busy} onClick={() => { if (time >= end) setTime(0); setPlaying(!playing); }}><Icon name={playing ? 'pause' : 'play'} /></button>
@@ -156,6 +173,7 @@ export function App() {
         <details className="methodology"><summary>How this comparison works <span>BLIS v0.12.0</span></summary><div>
           <p>Basic routing uses random selection; llm-d uses the upstream in-flight load configuration. Both execute inside BLIS’s embedded llm-d router, with the same engine settings and cold caches. These are simulated policy results, with zero router decision time.</p>
           <p>Input and output lengths use bounded synthetic distributions with 25% standard deviation. Shared context is added to each input. Chat and summarization are editable examples inspired by the BLIS catalog, rather than production traces.</p>
+          <p>Model and GPU options come from the pinned BLIS catalog and have been exercised in this simulator. All use BF16 weights and KV cache, one GPU per instance, and a 32,768-token engine limit. GPU memory values follow the catalog’s modeled capacity in GiB. These checks establish compatibility; accuracy depends on BLIS’s coefficient coverage for the selected deployment.</p>
           <p>Request transitions are recorded from the engine. Gauges use snapshots approximately every 50 ms. “Processing” includes prompt processing; “streaming” begins at the recorded first token. Full run metrics remain fixed while you replay.</p>
           {result && <><p>Run <code>{result.id}</code> · Seed {result.config.seed} · Identical arrivals and token demands verified.</p><dl className="pins">{Object.entries(result.provenance.repositories).map(([name,pin]) => <div key={name}><dt>{name}</dt><dd><a target="_blank" rel="noreferrer" href={`https://github.com/inference-sim/${name}/commit/${pin.commit}`}>{pin.tag} · {pin.commit.slice(0,12)}</a></dd></div>)}</dl><p>Kernel inputs include measured, vendor-specified, and assumed coefficients. Full provenance and raw decisions are included in the exported run.</p></>}
           <a href="https://github.com/inference-sim/inference-sim/blob/v0.12.0/docs/guide/routing.md" target="_blank" rel="noreferrer">Read the BLIS routing methodology ↗</a>
@@ -171,7 +189,7 @@ function NumberField({ label, value, min, max, onChange }: {label: string; value
 }
 function StageTag({event}: {event?: Event}) { return <span className={`stage ${event?.kind ?? 'pending'}`}>{event ? stageLabel[event.kind] : 'Not arrived'}</span>; }
 
-function Cluster({title,description,variant,side,instances,states,time,selected,onSelect}: {title:string;description:string;variant:string;side?:Side;instances:number;states:Map<string,Event>;time:number;selected:string;onSelect:(id:string)=>void}) {
+function Cluster({title,description,variant,side,instances,hardware,states,time,selected,onSelect}: {title:string;description:string;variant:string;side?:Side;instances:number;hardware:string;states:Map<string,Event>;time:number;selected:string;onSelect:(id:string)=>void}) {
   const snap = snapshotAt(side,time);
   const current = [...states.values()];
   const finished = current.filter(e => e.kind === 'completed').length;
@@ -179,7 +197,7 @@ function Cluster({title,description,variant,side,instances,states,time,selected,
   const running = current.filter(active).length;
   const ids = side?.playback.snapshots.at(-1)?.InstanceSnapshots.map(s=>s.ID) ?? Array.from({length:instances},(_,i)=>`instance_${i}`);
   return <article className={`cluster ${variant}`}>
-    <div className="cluster-title"><span className="policy-indicator" /><div><h2>{title}</h2><p>{description}</p></div><span className="gpu-count">{instances} GPUs</span></div>
+    <div className="cluster-title"><span className="policy-indicator" /><div><h2>{title}</h2><p>{description}</p></div><span className="gpu-count">{instances} × {hardware}</span></div>
     <div className="cluster-summary"><span><strong>{queued}</strong> queued</span><span><strong>{running}</strong> processing</span><span><strong>{finished}</strong> finished</span></div>
     <div className="router"><Icon name="route" /><span>{variant === 'basic' ? 'Random picker' : 'llm-d endpoint picker'}</span><small>{states.size} received</small></div>
     <div className="routing-lines" aria-hidden="true"><span /><span /></div>

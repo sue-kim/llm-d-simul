@@ -9,6 +9,7 @@ The comparison is a task interface for developers. Configuration stays on the le
 - IBM Plex Sans at 400, 500, and 600, self-hosted from the installed font package. Numeric data uses tabular figures.
 - Fine rules, restrained radii, dense legible controls, and color used to identify policy or state.
 - On narrow screens the configuration precedes vertically stacked policy views. Metrics remain a scrollable comparison table.
+- Model and GPU selectors share the workload fields' appearance. The chosen allocation is repeated below the controls; the comparison header and both policy cards use the completed run's recorded deployment.
 - Keyboard controls, visible focus, text labels alongside state colors, and reduced-motion support.
 
 ## Motion and data

@@ -29,7 +29,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		_, err := os.Stat(filepath.Join(root, ".runtime/bin/blis"))
-		writeJSON(w, 200, map[string]any{"ready": err == nil, "engine": "BLIS v0.12.0", "defaults": defaultConfig()})
+		writeJSON(w, 200, map[string]any{"ready": err == nil, "engine": "BLIS v0.12.0", "defaults": defaultConfig(), "deployments": deploymentOptions})
 	})
 	mux.HandleFunc("POST /api/compare", func(w http.ResponseWriter, r *http.Request) {
 		if origin := r.Header.Get("Origin"); origin != "" {

@@ -4,9 +4,9 @@ Agreed direction: October 22, 2026.
 
 ## Implementation status
 
-The first integration is implemented: pinned BLIS runs compare random selection with the upstream llm-d in-flight load configuration. Chat and summarization have editable token lengths, prefix size, request count, request rate, and seed; Llama 3.1 8B on 2–8 H100 replicas is the supported deployment. Synchronized playback, scrubbing, request inspection, final metrics, and JSON export are available.
+The first integration is implemented: pinned BLIS runs compare random selection with the upstream llm-d in-flight load configuration. Chat and summarization have editable token lengths, prefix size, request count, request rate, and seed. Model and GPU selection supports Llama 3.1 8B Instruct, Qwen 2.5 7B Instruct, and Qwen3 14B across A100 80GB, H100, and H200 on 2–8 replicas, one GPU per replica. Synchronized playback, scrubbing, request inspection, final metrics, and JSON export are available.
 
-Critical integration checks confirm equal inputs, request conservation, timing agreement, deterministic replay, and unchanged BLIS metrics with observation enabled. See [integration details](BLIS_INTEGRATION.md) for assumptions and the remaining boundary. The wider requirements below remain the roadmap; additional model/GPU choices and agent workloads are not yet implemented.
+Critical integration checks confirm equal inputs, request conservation, timing agreement, deterministic replay, and unchanged BLIS metrics with observation enabled. The deployment matrix check runs all nine combinations with matching settings on both policies. See [integration details](BLIS_INTEGRATION.md) for assumptions and the remaining boundary. The wider requirements below remain the roadmap; multi-GPU replicas and agent workloads are not yet implemented.
 
 ## Purpose
 
