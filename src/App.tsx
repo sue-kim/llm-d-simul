@@ -137,9 +137,7 @@ export function App() {
         <form onSubmit={e => { e.preventDefault(); void run(); }}>
           <fieldset disabled={busy || !ready}>
             <h2>Workload</h2><p className="section-help">Start with an example. Make it yours.</p>
-            <div className="preset-options" aria-label="Workload examples">
-              {(Object.keys(workloadPresets) as Config['workload'][]).map(id => <button type="button" key={id} aria-pressed={config.workload === id} onClick={() => preset(id)}><strong>{workloadPresets[id].label}</strong><span>{workloadPresets[id].description}</span></button>)}
-            </div>
+            <WorkloadPicker value={config.workload} onChange={preset} disabled={busy || !ready} />
             <div className="paired-fields"><NumberField label={agents ? 'New input / turn' : 'Input tokens'} value={config.inputTokens} min={16} max={8192} onChange={v => update('inputTokens', v)} /><NumberField label={agents ? 'Output / turn' : 'Output tokens'} value={config.outputTokens} min={16} max={2048} onChange={v => update('outputTokens', v)} /></div>
             <p className="field-help">Mean token lengths; each request varies around these values.</p>
             <NumberField label={agents ? 'Initial context tokens' : 'Shared prefix tokens'} value={config.prefixTokens} min={0} max={4096} onChange={v => update('prefixTokens', v)} />
@@ -245,6 +243,41 @@ export function App() {
         <footer>Built to explore tradeoffs. Validate promising configurations against your deployment.</footer>
       </main>
     </div>
+  </div>;
+}
+
+function WorkloadPicker({value,onChange,disabled}: {value:Config['workload'];onChange:(value:Config['workload'])=>void;disabled:boolean}) {
+  const [open,setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    root.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus();
+    const dismiss = (event: PointerEvent) => {
+      if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener('pointerdown',dismiss);
+    return () => document.removeEventListener('pointerdown',dismiss);
+  },[open]);
+  useEffect(() => { if (disabled) setOpen(false); },[disabled]);
+  return <div className="workload-picker" ref={root} onBlur={event=>{
+    if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
+  }} onKeyDown={event=>{
+    if (event.key==='Escape' && open) {
+      event.preventDefault(); setOpen(false); trigger.current?.focus();
+    }
+  }}>
+    <button type="button" className="workload-trigger" ref={trigger} disabled={disabled} aria-label={`Workload: ${workloadPresets[value].label}`} aria-expanded={open} aria-controls="workload-options" onClick={()=>setOpen(v=>!v)} onKeyDown={event=>{
+      if (event.key==='ArrowDown' || event.key==='ArrowUp') {event.preventDefault();setOpen(true);}
+    }}><span><strong>{workloadPresets[value].label}</strong><span>{workloadPresets[value].description}</span></span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+    {open && <div id="workload-options" className="preset-options workload-menu" role="group" aria-label="Workload examples" onKeyDown={event=>{
+      const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button'));
+      const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+      const next = event.key==='ArrowDown'?(index+1)%buttons.length:event.key==='ArrowUp'?(index-1+buttons.length)%buttons.length:event.key==='Home'?0:event.key==='End'?buttons.length-1:-1;
+      if (next>=0) {event.preventDefault();buttons[next]?.focus();}
+    }}>
+      {(Object.keys(workloadPresets) as Config['workload'][]).map(id=><button type="button" key={id} aria-pressed={value===id} onClick={()=>{onChange(id);setOpen(false);trigger.current?.focus();}}><strong>{workloadPresets[id].label}</strong><span>{workloadPresets[id].description}</span></button>)}
+    </div>}
   </div>;
 }
 
