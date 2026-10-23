@@ -158,7 +158,7 @@ export function App() {
             <div className="paired-fields"><NumberField label="Requests" value={config.requests} min={16} max={1024} onChange={v => update('requests', v)} /><NumberField label="Seed" value={config.seed} min={0} max={1000000} onChange={v => update('seed', v)} /></div>
             </>}
             <div className="settings-divider" />
-            <h2>Infrastructure</h2><p className="section-help">Your selection applies to both sides.</p>
+            <h2>Shared hardware</h2><p className="section-help">Same model and GPU budget on both sides.</p>
             <div className="model-setting">
               <div className="field"><label htmlFor="model-trigger">Model</label><PresetPicker id="model" label="Model" value={config.model} options={deployments?.models ?? [{id: config.model, label: 'Loading models…'}]} onChange={selectModel} disabled={busy || !ready} /></div>
               <small>{deployments ? `${deployments.precision} · ${deployments.contextLimit.toLocaleString()} token simulation context` : 'Loading model settings…'}</small>
@@ -169,15 +169,31 @@ export function App() {
             </div>
             <label className="field">Total GPU budget / side<select value={config.instances} onChange={e => setConfig(c => ({...c, instances: +e.target.value, prefillInstances: Math.min(c.prefillInstances, +e.target.value - 1)}))}>{[2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n} instances · {n} GPUs</option>)}</select></label>
             <p className="field-help">{config.instances} × {selectedHardware?.shortLabel ?? 'GPU'} per side. Same model, precision, and GPU count.</p>
-            <div className="pool-settings">
-              <label className="field">Processing layout<select value={config.disaggregated ? 'separate' : 'combined'} onChange={e => update('disaggregated', e.target.value === 'separate')}><option value="combined">Combined prefill + decode</option><option value="separate">Separate prefill / decode pools</option></select></label>
-              {config.disaggregated && <>
-                <label className="field">Prefill allocation<select value={config.prefillInstances} onChange={e => update('prefillInstances', +e.target.value)}>{Array.from({length: config.instances - 1}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} prefill · {config.instances - n} decode</option>)}</select></label>
-                <p className="pool-budget"><b>{config.prefillInstances}</b> prefill + <b>{config.instances - config.prefillInstances}</b> decode = <b>{config.instances} GPUs</b> per side</p>
-                <label className="field">KV transfer network<select value={config.fabric} onChange={e => update('fabric', e.target.value)}>{deployments?.networks.map(n => <option key={n.id} value={n.id}>{n.label}</option>)}</select></label>
-                <p className="field-help">One GPU per node. Both sides use the same pool split and network; simultaneous KV transfers share bandwidth.</p>
-              </>}
-            </div>
+            <section className="llmd-settings" aria-labelledby="llmd-features-title">
+              <h2 id="llmd-features-title"><Icon name="route" size={19} />llm-d features</h2>
+              <div className="routing-feature">
+                <span className="feature-scope">llm-d side</span>
+                <h3>Inference-aware routing</h3>
+                <ul>
+                  <li>Queue-aware selection</li>
+                  <li>Prefix cache affinity</li>
+                  {!config.disaggregated && <li>Active load &amp; KV usage</li>}
+                </ul>
+                <p>{config.disaggregated ? 'Scores endpoints within each pool.' : 'Scores instances before assigning requests.'} Basic routing picks randomly.</p>
+              </div>
+              <div className="pool-settings">
+                <span className="feature-scope shared">Both sides</span>
+                <h3>Prefill / decode</h3>
+                <p className="feature-description">Keep input processing and output generation together, or split them into pools.</p>
+                <label className="field">Processing layout<select value={config.disaggregated ? 'separate' : 'combined'} onChange={e => update('disaggregated', e.target.value === 'separate')}><option value="combined">Combined prefill + decode</option><option value="separate">Separate prefill / decode pools</option></select></label>
+                {config.disaggregated ? <>
+                  <label className="field">Prefill allocation<select value={config.prefillInstances} onChange={e => update('prefillInstances', +e.target.value)}>{Array.from({length: config.instances - 1}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} prefill · {config.instances - n} decode</option>)}</select></label>
+                  <p className="pool-budget"><b>{config.prefillInstances}</b> prefill + <b>{config.instances - config.prefillInstances}</b> decode = <b>{config.instances} GPUs</b> per side</p>
+                  <label className="field">KV transfer network<select value={config.fabric} onChange={e => update('fabric', e.target.value)}>{deployments?.networks.map(n => <option key={n.id} value={n.id}>{n.label}</option>)}</select></label>
+                  <p className="feature-description">Same pool split and network on both sides. One GPU per node; simultaneous KV transfers share bandwidth.</p>
+                </> : <p className="feature-description">Both sides use combined instances. Separate pools enable KV transfers and network settings.</p>}
+              </div>
+            </section>
             <button className="run-button" type="submit" disabled={!ready || busy || contextError}>{busy ? <span className="spinner" /> : <Icon name="play" />} {busy ? 'Running BLIS…' : 'Run comparison'}</button>
             <p className="run-note">Runs locally on your CPU. No GPUs required.</p>
           </fieldset>
