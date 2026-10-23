@@ -45,6 +45,9 @@ export function App() {
   const [speed, setSpeed] = useState(1);
   const [selected, setSelected] = useState('');
   const [search, setSearch] = useState('');
+  const [activeTab, setActiveTab] = useState<'simulation' | 'results'>('simulation');
+  const inspectorHeading = useRef<HTMLHeadingElement>(null);
+  const pendingInspection = useRef(false);
   const requestController = useRef<AbortController | null>(null);
   const end = result?.endTimeUs ?? 1;
   const changed = !!result && (Object.keys(config) as (keyof Config)[]).some(key => config[key] !== result.config[key]);
@@ -69,7 +72,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    if (!playing || !result) return;
+    if (!playing || !result || activeTab !== 'simulation') return;
     let last = performance.now(), frame = 0;
     function tick(now: number) {
       const elapsed = Math.min(now - last, 250) * 1000 * speed;
@@ -79,11 +82,17 @@ export function App() {
     }
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [playing, speed, result, end]);
+  }, [playing, speed, result, end, activeTab]);
   useEffect(() => { if (time >= end) setPlaying(false); }, [time, end]);
+  useEffect(() => {
+    if (activeTab !== 'simulation' || !pendingInspection.current) return;
+    pendingInspection.current = false;
+    inspectorHeading.current?.focus({preventScroll: true});
+    inspectorHeading.current?.scrollIntoView({block: 'start'});
+  }, [activeTab, selected, time]);
 
   async function run() {
-    setBusy(true); setError(''); setPlaying(false);
+    setBusy(true); setError(''); setPlaying(false); setActiveTab('simulation');
     const ctrl = new AbortController(); requestController.current = ctrl;
     try {
       const response = await fetch('/api/compare', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config), signal: ctrl.signal });
@@ -112,8 +121,13 @@ export function App() {
     setPlaying(false);
   }
   function inspectEvidence(evidence: NonNullable<PhaseComparison['evidence']>) {
+    pendingInspection.current = true;
+    setActiveTab('simulation');
     setSelected(evidence.key); setTime(evidence.timeUs); setPlaying(false);
-    document.getElementById('inspector-title')?.scrollIntoView({block: 'start'});
+  }
+  function selectTab(tab: 'simulation' | 'results') {
+    setActiveTab(tab);
+    if (tab === 'results') setPlaying(false);
   }
   function download() {
     if (!result || !assessment) return;
@@ -208,6 +222,14 @@ export function App() {
         {viewConfig.disaggregated && <p className="session-note">Separate pools · {viewConfig.prefillInstances} prefill + {viewConfig.instances - viewConfig.prefillInstances} decode = {viewConfig.instances} GPUs on each side · {networkLabel}. Both strategies route within the same pool layout.</p>}
         {changed && <p className="changed-note" role="status">Settings changed. Run again to update the comparison below.</p>}
         {busy && <div className="busy-note" role="status"><span className="spinner" /><span>Computing both BLIS runs. Playback will be ready when they finish.</span></div>}
+        <div className="comparison-tabs" role="tablist" aria-label="Comparison views">
+          {(['simulation', 'results'] as const).map(tab => <button type="button" role="tab" key={tab} id={`${tab}-tab`} aria-controls={`${tab}-panel`} aria-selected={activeTab === tab} tabIndex={activeTab === tab ? 0 : -1} onClick={() => selectTab(tab)} onKeyDown={event => {
+            const next = event.key === 'Home' ? 'simulation' : event.key === 'End' ? 'results' : event.key === 'ArrowLeft' || event.key === 'ArrowRight' ? (tab === 'simulation' ? 'results' : 'simulation') : null;
+            if (!next) return;
+            event.preventDefault(); selectTab(next); document.getElementById(`${next}-tab`)?.focus();
+          }}>{tab === 'simulation' ? 'Simulation' : 'Results'}</button>)}
+        </div>
+        <div id="simulation-panel" role="tabpanel" aria-labelledby="simulation-tab" hidden={activeTab !== 'simulation'} tabIndex={0}>
         <section className="comparison" aria-label="Side-by-side simulation">
           <Cluster title="Basic load balancing" description={viewConfig.disaggregated ? 'Random selection within each pool' : 'Random endpoint selection'} variant="basic" side={result?.basic} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.basic} time={time} selected={selected} onSelect={setSelected} />
           <Cluster title="llm-d routing" description={viewConfig.disaggregated ? 'Prefix cache and queue scoring' : 'In-flight load, queue, and cache scoring'} variant="llmd" side={result?.llmd} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.llmd} time={time} selected={selected} onSelect={setSelected} />
@@ -222,13 +244,8 @@ export function App() {
           <span className="playback-caption">Simulated time</span>
         </div>
 
-        <section className="results-section" aria-labelledby="results-title"><div className="section-heading"><h2 id="results-title">Full run results</h2><span>{result ? 'Completed-request latency · common throughput window' : 'Run a comparison to see measured simulation outputs'}</span></div>
-          <ResultsSummary result={result} targets={targets} assessment={assessment} onTargets={setTargets} onInspect={inspectEvidence}/>
-          <Results result={result} />
-        </section>
-
         <section className="inspection-section" aria-labelledby="inspector-title">
-          <div className="section-heading"><h2 id="inspector-title">Inspect a request</h2><span>Select a request on either side to follow its path.</span></div>
+          <div className="section-heading"><h2 id="inspector-title" ref={inspectorHeading} tabIndex={-1}>Inspect a request</h2><span>Select a request on either side to follow its path.</span></div>
           <div className="inspection-grid">
             <div className="request-list"><label className="search-label">Find request<input type="search" placeholder={result?.config.workload === 'agents' ? 'Search agent or turn' : 'Search request ID'} value={search} onChange={e => setSearch(e.target.value)} disabled={!result} /></label>
               <div className="request-table-head"><span>Request</span><span>Basic</span><span>llm-d</span></div>
@@ -245,6 +262,13 @@ export function App() {
             </> : <div className="inspector-empty"><Icon name="route" size={30} /><h3>See what a request waited for.</h3><p>Inspect its recorded queue time, assigned instance, and routing decision in both runs.</p></div>}</div>
           </div>
         </section>
+        </div>
+        <div id="results-panel" role="tabpanel" aria-labelledby="results-tab" hidden={activeTab !== 'results'} tabIndex={0}>
+          <section className="results-section" aria-labelledby="results-title"><div className="section-heading"><h2 id="results-title">Full run results</h2><span>{result ? 'Completed-request latency · common throughput window' : 'Run a comparison to see measured simulation outputs'}</span></div>
+            <ResultsSummary result={result} targets={targets} assessment={assessment} onTargets={setTargets} onInspect={inspectEvidence}/>
+            <Results result={result} />
+          </section>
+        </div>
         <details className="methodology"><summary>How this comparison works <span>BLIS v0.12.0</span></summary><div>
           <p>Basic routing uses random selection. With combined instances, llm-d uses the upstream in-flight load configuration. With separate pools, it uses the upstream disaggregation configuration: prefix-cache score (weight 2) and queue score (weight 1). Both execute inside BLIS’s embedded llm-d router, with the same engine settings and cold caches. These are simulated policy results, with zero router decision time.</p>
           <p>Input and output lengths use bounded synthetic distributions with 25% standard deviation. Shared context is added to each input. Chat, summarization, and code generation are editable synthetic examples using BLIS workload distributions. Code generation emphasizes long output sequences; no real code is executed or evaluated.</p>

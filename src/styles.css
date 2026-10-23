@@ -57,3 +57,7 @@
 .llmd-settings h3{font-size:13px;font-weight:500;line-height:1.5;margin:6px 0 8px}.feature-scope{display:inline-block;font-size:9px;line-height:1.4;font-weight:500;letter-spacing:.3px;text-transform:uppercase;color:#1d6753}.feature-scope.shared{color:#596960}
 .routing-feature{padding-bottom:16px;margin-bottom:16px;border-bottom:1px solid #d5e2d9}.routing-feature ul{list-style:none;padding:0;margin:0 0 10px}.routing-feature li{display:flex;align-items:center;gap:7px;font-size:11px;line-height:1.6;margin:4px 0}.routing-feature li:before{content:'✓';color:var(--llmd);font-size:11px}
 .routing-feature p,.feature-description{font-size:11px;font-weight:400;line-height:1.6;color:#596960}.llmd-settings .feature-description{margin-bottom:14px}.llmd-settings .feature-description:last-child{margin-bottom:0}.llmd-settings .pool-budget{background:#e6f0e9}
+
+.comparison-tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin:0 0 24px}
+.comparison-tabs button{position:relative;padding:12px 18px;border:0;border-radius:5px 5px 0 0;background:transparent;font-size:13px;font-weight:500;color:var(--muted)}.comparison-tabs button:hover{background:#edf2ed;color:var(--ink)}.comparison-tabs button[aria-selected=true]{background:#eaf2ed;color:#1d5b49}.comparison-tabs button[aria-selected=true]:after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--llmd)}
+[role=tabpanel]:focus-visible,#inspector-title:focus-visible{outline:2px solid #177866;outline-offset:5px}#inspector-title{scroll-margin-top:20px}
