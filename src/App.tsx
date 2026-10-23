@@ -137,7 +137,7 @@ export function App() {
         <form onSubmit={e => { e.preventDefault(); void run(); }}>
           <fieldset disabled={busy || !ready}>
             <h2>Workload</h2><p className="section-help">Start with an example. Make it yours.</p>
-            <WorkloadPicker value={config.workload} onChange={preset} disabled={busy || !ready} />
+            <PresetPicker id="workload" label="Workload" className="workload-picker" value={config.workload} options={(Object.keys(workloadPresets) as Config['workload'][]).map(id => ({id, ...workloadPresets[id]}))} onChange={preset} disabled={busy || !ready} />
             <div className="paired-fields"><NumberField label={agents ? 'New input / turn' : 'Input tokens'} value={config.inputTokens} min={16} max={8192} onChange={v => update('inputTokens', v)} /><NumberField label={agents ? 'Output / turn' : 'Output tokens'} value={config.outputTokens} min={16} max={2048} onChange={v => update('outputTokens', v)} /></div>
             <p className="field-help">Mean token lengths; each request varies around these values.</p>
             <NumberField label={agents ? 'Initial context tokens' : 'Shared prefix tokens'} value={config.prefixTokens} min={0} max={4096} onChange={v => update('prefixTokens', v)} />
@@ -160,11 +160,11 @@ export function App() {
             <div className="settings-divider" />
             <h2>Infrastructure</h2><p className="section-help">Your selection applies to both sides.</p>
             <div className="model-setting">
-              <label className="field">Model<select value={config.model} onChange={e => selectModel(e.target.value)}>{deployments ? deployments.models.map(model => <option key={model.id} value={model.id}>{model.label}</option>) : <option value={config.model}>Loading models…</option>}</select></label>
+              <div className="field"><label htmlFor="model-trigger">Model</label><PresetPicker id="model" label="Model" value={config.model} options={deployments?.models ?? [{id: config.model, label: 'Loading models…'}]} onChange={selectModel} disabled={busy || !ready} /></div>
               <small>{deployments ? `${deployments.precision} · ${deployments.contextLimit.toLocaleString()} token simulation context` : 'Loading model settings…'}</small>
             </div>
             <div className="gpu-setting">
-              <label className="field">GPU<select value={config.hardware} onChange={e => update('hardware', e.target.value)}>{deployments ? deployments.hardware.map(hardware => <option key={hardware.id} value={hardware.id} disabled={!selectedModel?.hardwareIds.includes(hardware.id)}>{hardware.label}</option>) : <option value={config.hardware}>Loading GPUs…</option>}</select></label>
+              <div className="field"><label htmlFor="gpu-trigger">GPU</label><PresetPicker id="gpu" label="GPU" value={config.hardware} options={deployments ? deployments.hardware.map(hardware => ({...hardware, disabled: !selectedModel?.hardwareIds.includes(hardware.id)})) : [{id: config.hardware, label: 'Loading GPUs…'}]} onChange={value => update('hardware', value)} disabled={busy || !ready} /></div>
               <p className="field-help">{selectedHardware ? `${selectedHardware.memoryGiB.toFixed(2)} GiB modeled memory · one GPU per instance` : 'Loading GPU settings…'}</p>
             </div>
             <label className="field">Total GPU budget / side<select value={config.instances} onChange={e => setConfig(c => ({...c, instances: +e.target.value, prefillInstances: Math.min(c.prefillInstances, +e.target.value - 1)}))}>{[2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n} instances · {n} GPUs</option>)}</select></label>
@@ -246,13 +246,17 @@ export function App() {
   </div>;
 }
 
-function WorkloadPicker({value,onChange,disabled}: {value:Config['workload'];onChange:(value:Config['workload'])=>void;disabled:boolean}) {
+type PresetOption<Value extends string> = {id:Value;label:string;description?:string;disabled?:boolean};
+
+function PresetPicker<Value extends string>({id,label,value,options,onChange,disabled,className=''}: {id:string;label:string;value:Value;options:PresetOption<Value>[];onChange:(value:Value)=>void;disabled:boolean;className?:string}) {
   const [open,setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const selected = options.find(option => option.id === value);
   useEffect(() => {
     if (!open) return;
-    root.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus();
+    const selectedButton = root.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]:not(:disabled)');
+    (selectedButton ?? root.current?.querySelector<HTMLButtonElement>('.preset-options button:not(:disabled)'))?.focus();
     const dismiss = (event: PointerEvent) => {
       if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false);
     };
@@ -260,23 +264,24 @@ function WorkloadPicker({value,onChange,disabled}: {value:Config['workload'];onC
     return () => document.removeEventListener('pointerdown',dismiss);
   },[open]);
   useEffect(() => { if (disabled) setOpen(false); },[disabled]);
-  return <div className="workload-picker" ref={root} onBlur={event=>{
+  return <div className={`preset-picker ${className}`} ref={root} onBlur={event=>{
     if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false);
   }} onKeyDown={event=>{
     if (event.key==='Escape' && open) {
       event.preventDefault(); setOpen(false); trigger.current?.focus();
     }
   }}>
-    <button type="button" className="workload-trigger" ref={trigger} disabled={disabled} aria-label={`Workload: ${workloadPresets[value].label}`} aria-expanded={open} aria-controls="workload-options" onClick={()=>setOpen(v=>!v)} onKeyDown={event=>{
+    <button type="button" id={`${id}-trigger`} className="preset-trigger" ref={trigger} disabled={disabled} aria-label={`${label}: ${selected?.label ?? value}`} aria-expanded={open} aria-controls={`${id}-options`} onClick={()=>setOpen(v=>!v)} onKeyDown={event=>{
       if (event.key==='ArrowDown' || event.key==='ArrowUp') {event.preventDefault();setOpen(true);}
-    }}><span><strong>{workloadPresets[value].label}</strong><span>{workloadPresets[value].description}</span></span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
-    {open && <div id="workload-options" className="preset-options workload-menu" role="group" aria-label="Workload examples" onKeyDown={event=>{
-      const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button'));
+    }}><span><strong>{selected?.label ?? value}</strong>{selected?.description && <span>{selected.description}</span>}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+    {open && <div id={`${id}-options`} className="preset-options preset-menu" role="group" aria-label={`${label} options`} onKeyDown={event=>{
+      const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
+      if (!buttons.length) return;
       const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
       const next = event.key==='ArrowDown'?(index+1)%buttons.length:event.key==='ArrowUp'?(index-1+buttons.length)%buttons.length:event.key==='Home'?0:event.key==='End'?buttons.length-1:-1;
       if (next>=0) {event.preventDefault();buttons[next]?.focus();}
     }}>
-      {(Object.keys(workloadPresets) as Config['workload'][]).map(id=><button type="button" key={id} aria-pressed={value===id} onClick={()=>{onChange(id);setOpen(false);trigger.current?.focus();}}><strong>{workloadPresets[id].label}</strong><span>{workloadPresets[id].description}</span></button>)}
+      {options.map(option=><button type="button" key={option.id} disabled={option.disabled} aria-pressed={value===option.id} onClick={()=>{onChange(option.id);setOpen(false);trigger.current?.focus();}}><strong>{option.label}</strong>{option.description && <span>{option.description}</span>}</button>)}
     </div>}
   </div>;
 }
