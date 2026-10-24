@@ -110,3 +110,24 @@
 .pool-fields>.field:first-child{grid-column:1/-1}
 @media(max-width:850px){.comparison-options-content{grid-template-columns:1fr;gap:22px}.settings .traffic-setting{grid-column:1/-1}}
 @media(max-width:580px){.comparison-options>summary{flex-wrap:wrap;gap:6px 12px;position:relative;padding-right:22px}.layout-summary{width:100%;margin-left:0}.comparison-options>summary:after{position:absolute;right:3px;top:18px}.pool-fields{grid-template-columns:1fr}}
+
+/* Fit the primary settings together on desktop; keep touch layouts spacious. */
+@media(min-width:851px){
+  .settings-scroll{padding-top:16px}
+  .settings .field{gap:4px;margin-bottom:10px}
+  .settings .preset-trigger{min-height:36px;padding:8px 10px}
+  .settings .workload-picker{margin:8px 0 12px}
+  .settings .workload-picker .preset-trigger>span>span{display:none}
+  .settings .traffic-setting{margin-bottom:8px}
+  .settings .workload-options{margin-bottom:0}
+  .settings .workload-options>summary{padding:4px 0}
+  .settings .settings-divider{margin:8px 0 12px}
+  .settings .settings-divider+h2{display:inline-block;margin-right:8px}
+  .settings .section-help{display:inline-block;margin:0 0 12px}
+  .settings .model-setting{margin-bottom:10px}
+  .settings .model-setting .field{margin-bottom:0}
+  .settings fieldset>.field:last-child{margin-bottom:0}
+  .settings .workload-note{margin-bottom:8px}
+  .settings-actions{padding:12px var(--settings-padding) calc(12px + env(safe-area-inset-bottom))}
+  .settings-actions .run-note{margin-top:8px}
+}
