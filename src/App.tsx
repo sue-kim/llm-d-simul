@@ -149,6 +149,7 @@ export function App() {
     <div className="workspace">
       <aside className="settings">
         <form onSubmit={e => { e.preventDefault(); void run(); }}>
+          <div className="settings-scroll">
           <fieldset disabled={busy || !ready}>
             <h2>Workload</h2><p className="section-help">Start with an example. Make it yours.</p>
             <PresetPicker id="workload" label="Workload" className="workload-picker" value={config.workload} options={(Object.keys(workloadPresets) as Config['workload'][]).map(id => ({id, ...workloadPresets[id]}))} onChange={preset} disabled={busy || !ready} />
@@ -208,9 +209,12 @@ export function App() {
                 </> : <p className="feature-description">Both sides use combined instances. Separate pools enable KV transfers and network settings.</p>}
               </div>
             </section>
+          </fieldset>
+          </div>
+          <div className="settings-actions">
             <button className="run-button" type="submit" disabled={!ready || busy || contextError}>{busy ? <span className="spinner" /> : <Icon name="play" />} {busy ? 'Running BLIS…' : 'Run comparison'}</button>
             <p className="run-note">Runs locally on your CPU. No GPUs required.</p>
-          </fieldset>
+          </div>
         </form>
       </aside>
 

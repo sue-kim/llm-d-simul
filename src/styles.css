@@ -61,3 +61,20 @@
 .comparison-tabs{display:flex;gap:8px;border-bottom:1px solid var(--line);margin:0 0 24px}
 .comparison-tabs button{position:relative;padding:12px 18px;border:0;border-radius:5px 5px 0 0;background:transparent;font-size:13px;font-weight:500;color:var(--muted)}.comparison-tabs button:hover{background:#edf2ed;color:var(--ink)}.comparison-tabs button[aria-selected=true]{background:#eaf2ed;color:#1d5b49}.comparison-tabs button[aria-selected=true]:after{content:'';position:absolute;bottom:-1px;left:0;right:0;height:2px;background:var(--llmd)}
 [role=tabpanel]:focus-visible,#inspector-title:focus-visible{outline:2px solid #177866;outline-offset:5px}#inspector-title{scroll-margin-top:20px}
+
+/* Keep the action outside the scrolling settings, with its own reserved space. */
+.settings{--settings-padding:23px;padding:0;min-height:0}
+.settings-scroll{padding:27px var(--settings-padding) 7px}
+.settings-actions{flex-shrink:0;padding:15px var(--settings-padding) calc(18px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:#fbfcfa}
+.settings-actions .run-button{margin-top:0}
+@media(min-width:851px){
+  .app{height:100dvh;display:flex;flex-direction:column;overflow:hidden}
+  .topbar{flex-shrink:0}
+  .workspace{flex:1;min-height:0;width:100%;overflow:hidden}
+  .settings form{height:100%;display:flex;flex-direction:column}
+  .settings-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior-y:contain}
+  .workspace>main{overflow-y:auto;overscroll-behavior-y:contain}
+}
+@media(max-width:1180px){.settings{--settings-padding:18px}.settings-scroll{padding-top:25px}}
+@media(max-width:850px){.settings{--settings-padding:20px}.settings-scroll{padding-top:20px;padding-bottom:0}.settings-actions{position:sticky;bottom:0;z-index:11;display:flex;flex-direction:column;align-items:center}}
+@media(max-width:580px){.settings{--settings-padding:16px}}
