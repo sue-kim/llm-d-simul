@@ -16,6 +16,8 @@ npm run dev
 
 Open [http://127.0.0.1:5173](http://127.0.0.1:5173). The simulation API runs on port 8787. The first setup downloads pinned BLIS sources, its catalog and registry, a project-local Go compiler, and Go dependencies into the ignored `.runtime/` directory. Subsequent simulation runs work locally.
 
+If a copied workspace reports `Bad CPU type in executable` or an incompatible Go version, rerun `npm run setup`. Setup replaces a missing, incompatible, or outdated local Go toolchain and rebuilds BLIS for the current machine. Saved runs remain in `.runtime/runs/`.
+
 For a production build served by the same local API:
 
 ```sh
