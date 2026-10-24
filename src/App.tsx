@@ -151,64 +151,44 @@ export function App() {
         <form onSubmit={e => { e.preventDefault(); void run(); }}>
           <div className="settings-scroll">
           <fieldset disabled={busy || !ready}>
-            <h2>Workload</h2><p className="section-help">Start with an example. Make it yours.</p>
+            <h2>Workload</h2>
             <PresetPicker id="workload" label="Workload" className="workload-picker" value={config.workload} options={(Object.keys(workloadPresets) as Config['workload'][]).map(id => ({id, ...workloadPresets[id]}))} onChange={preset} disabled={busy || !ready} />
             <div className="paired-fields"><NumberField label={agents ? 'New input / turn' : 'Input tokens'} value={config.inputTokens} min={16} max={8192} onChange={v => update('inputTokens', v)} /><NumberField label={agents ? 'Output / turn' : 'Output tokens'} value={config.outputTokens} min={16} max={2048} onChange={v => update('outputTokens', v)} /></div>
-            <p className="field-help">Mean token lengths; each request varies around these values.</p>
-            <NumberField label={agents ? 'Initial context tokens' : 'Shared prefix tokens'} value={config.prefixTokens} min={0} max={4096} onChange={v => update('prefixTokens', v)} />
-            <p className="field-help">{agents ? 'Unique to each agent. Prior inputs and outputs accumulate across its turns.' : 'Added to each input. Models a shared system prompt or document context.'}</p>
             {agents ? <>
               <div className="paired-fields"><NumberField label="Agent sessions" value={config.sessions} min={1} max={64} onChange={v => update('sessions', v)} /><NumberField label="Turns / session" value={config.turns} min={2} max={8} onChange={v => update('turns', v)} /></div>
-              <NumberField label="Pause between turns (ms)" value={config.thinkTimeMs} min={0} max={5000} onChange={v => update('thinkTimeMs', v)} />
-              <p className="field-help">Starts after the previous response finishes. Models time spent between model calls.</p>
-              <NumberField label="Mean start delay (ms)" value={config.meanStartMs} min={10} max={30000} onChange={v => update('meanStartMs', v)} />
-              <p className="field-help">Exponential session starts. Lower values bring agents online closer together.</p>
               <p className="workload-note">{config.sessions * config.turns} requests · {config.sessions} independent sessions</p>
               {contextError && <p className="context-error" role="alert">Context could reach {contextBudget.toLocaleString()} tokens. Reduce turns or token lengths to stay within {(deployments?.contextLimit ?? 32768).toLocaleString()}.</p>}
-              <NumberField label="Seed" value={config.seed} min={0} max={1000000} onChange={v => update('seed', v)} />
             </> : <>
+            <div className="traffic-setting">
             <label className="range-label" htmlFor="traffic">Traffic <strong>{config.rate} <span>req/s</span></strong></label>
             <input id="traffic" type="range" min="1" max="300" value={config.rate} onChange={e => update('rate', +e.target.value)} />
-            <div className="range-ends"><span>1 req/s</span><span>300 req/s</span></div>
-            <div className="paired-fields"><NumberField label="Requests" value={config.requests} min={16} max={1024} onChange={v => update('requests', v)} /><NumberField label="Seed" value={config.seed} min={0} max={1000000} onChange={v => update('seed', v)} /></div>
+            </div>
+            <NumberField label="Requests" value={config.requests} min={16} max={1024} onChange={v => update('requests', v)} />
             </>}
+            <details className="workload-options" onInvalidCapture={event => { event.currentTarget.open = true; }}>
+              <summary>More options</summary>
+              <div>
+                <p className="options-help">Input and output tokens are averages; each request varies around them.</p>
+                <NumberField label={agents ? 'Initial context tokens' : 'Shared prefix tokens'} value={config.prefixTokens} min={0} max={4096} onChange={v => update('prefixTokens', v)} />
+                <p className="field-help">{agents ? 'Unique to each agent. Prior inputs and outputs accumulate across its turns.' : 'Added to each input. Models a shared system prompt or document context.'}</p>
+                {agents && <>
+                  <NumberField label="Pause between turns (ms)" value={config.thinkTimeMs} min={0} max={5000} onChange={v => update('thinkTimeMs', v)} />
+                  <p className="field-help">Starts after the previous response finishes.</p>
+                  <NumberField label="Mean start delay (ms)" value={config.meanStartMs} min={10} max={30000} onChange={v => update('meanStartMs', v)} />
+                  <p className="field-help">Lower values bring agents online closer together.</p>
+                </>}
+                <NumberField label="Seed" value={config.seed} min={0} max={1000000} onChange={v => update('seed', v)} />
+              </div>
+            </details>
             <div className="settings-divider" />
-            <h2>Shared hardware</h2><p className="section-help">Same model and GPU budget on both sides.</p>
+            <h2>Hardware</h2><p className="section-help">Shared by both sides.</p>
             <div className="model-setting">
               <div className="field"><label htmlFor="model-trigger">Model</label><PresetPicker id="model" label="Model" value={config.model} options={deployments?.models ?? [{id: config.model, label: 'Loading models…'}]} onChange={selectModel} disabled={busy || !ready} /></div>
-              <small>{deployments ? `${deployments.precision} · ${deployments.contextLimit.toLocaleString()} token simulation context` : 'Loading model settings…'}</small>
             </div>
             <div className="gpu-setting">
-              <div className="field"><label htmlFor="gpu-trigger">GPU</label><PresetPicker id="gpu" label="GPU" value={config.hardware} options={deployments ? deployments.hardware.map(hardware => ({...hardware, disabled: !selectedModel?.hardwareIds.includes(hardware.id)})) : [{id: config.hardware, label: 'Loading GPUs…'}]} onChange={value => update('hardware', value)} disabled={busy || !ready} /></div>
-              <p className="field-help">{selectedHardware ? `${selectedHardware.memoryGiB.toFixed(2)} GiB modeled memory · one GPU per instance` : 'Loading GPU settings…'}</p>
+              <div className="field"><label htmlFor="gpu-trigger">GPU</label><PresetPicker id="gpu" label="GPU" value={config.hardware} options={deployments ? deployments.hardware.map(hardware => ({...hardware, description: `${hardware.memoryGiB.toFixed(2)} GiB modeled memory`, disabled: !selectedModel?.hardwareIds.includes(hardware.id)})) : [{id: config.hardware, label: 'Loading GPUs…'}]} onChange={value => update('hardware', value)} disabled={busy || !ready} compact /></div>
             </div>
-            <label className="field">Total GPU budget / side<select value={config.instances} onChange={e => setConfig(c => ({...c, instances: +e.target.value, prefillInstances: Math.min(c.prefillInstances, +e.target.value - 1)}))}>{[2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n} instances · {n} GPUs</option>)}</select></label>
-            <p className="field-help">{config.instances} × {selectedHardware?.shortLabel ?? 'GPU'} per side. Same model, precision, and GPU count.</p>
-            <section className="llmd-settings" aria-labelledby="llmd-features-title">
-              <h2 id="llmd-features-title"><Icon name="route" size={19} />llm-d features</h2>
-              <div className="routing-feature">
-                <span className="feature-scope">llm-d side</span>
-                <h3>Inference-aware routing</h3>
-                <ul>
-                  <li>Queue-aware selection</li>
-                  <li>Prefix cache affinity</li>
-                  {!config.disaggregated && <li>Active load &amp; KV usage</li>}
-                </ul>
-                <p>{config.disaggregated ? 'Scores endpoints within each pool.' : 'Scores instances before assigning requests.'} Basic routing picks randomly.</p>
-              </div>
-              <div className="pool-settings">
-                <span className="feature-scope shared">Both sides</span>
-                <h3>Prefill / decode</h3>
-                <p className="feature-description">Keep input processing and output generation together, or split them into pools.</p>
-                <label className="field">Processing layout<select value={config.disaggregated ? 'separate' : 'combined'} onChange={e => update('disaggregated', e.target.value === 'separate')}><option value="combined">Combined prefill + decode</option><option value="separate">Separate prefill / decode pools</option></select></label>
-                {config.disaggregated ? <>
-                  <label className="field">Prefill allocation<select value={config.prefillInstances} onChange={e => update('prefillInstances', +e.target.value)}>{Array.from({length: config.instances - 1}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} prefill · {config.instances - n} decode</option>)}</select></label>
-                  <p className="pool-budget"><b>{config.prefillInstances}</b> prefill + <b>{config.instances - config.prefillInstances}</b> decode = <b>{config.instances} GPUs</b> per side</p>
-                  <label className="field">KV transfer network<select value={config.fabric} onChange={e => update('fabric', e.target.value)}>{deployments?.networks.map(n => <option key={n.id} value={n.id}>{n.label}</option>)}</select></label>
-                  <p className="feature-description">Same pool split and network on both sides. One GPU per node; simultaneous KV transfers share bandwidth.</p>
-                </> : <p className="feature-description">Both sides use combined instances. Separate pools enable KV transfers and network settings.</p>}
-              </div>
-            </section>
+            <label className="field">GPUs per side<select value={config.instances} onChange={e => setConfig(c => ({...c, instances: +e.target.value, prefillInstances: Math.min(c.prefillInstances, +e.target.value - 1)}))}>{[2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n} GPUs · {n} instances</option>)}</select></label>
           </fieldset>
           </div>
           <div className="settings-actions">
@@ -223,6 +203,27 @@ export function App() {
         <div className="page-heading"><div><h1>Compare inference routing</h1></div><button className="text-button export" disabled={!result || busy || !validTargets(targets)} onClick={download}><Icon name="download" />Export run</button></div>
         {error && <div className="error" role="alert"><strong>Couldn’t complete the comparison</strong><p>{error}</p></div>}
         <div className="comparison-context"><span className="verified-dot" /><span>{result ? `${workloadPresets[result.config.workload].label} · ${result.fairness.matchedRequests} matched requests · ${result.deployment.model.label} · ${result.config.instances} ${resultHardware} GPUs per side` : 'Matched requests, model, hardware, and engine settings'}</span><span className="synthetic-label">Synthetic workload</span></div>
+        <details className="comparison-options">
+          <summary><span>llm-d features &amp; pools</span><span className="layout-summary">{config.disaggregated ? `${config.prefillInstances} prefill / ${config.instances - config.prefillInstances} decode` : 'Combined instances'}</span></summary>
+          <div className="comparison-options-content">
+            <section className="routing-feature" aria-labelledby="llmd-features-title">
+              <h3 id="llmd-features-title">Inference-aware routing</h3>
+              <p>llm-d scores {config.disaggregated ? 'endpoints within each pool' : 'instances'} using queues and prefix cache{config.disaggregated ? '' : ', active load, and KV usage'}. Basic routing picks randomly.</p>
+            </section>
+            <fieldset className="pool-settings" disabled={busy || !ready}>
+              <legend>Shared prefill / decode pools</legend>
+              <p className="feature-description">The same layout and total GPU budget apply to both sides.</p>
+              <div className="pool-fields">
+                <label className="field">Processing layout<select value={config.disaggregated ? 'separate' : 'combined'} onChange={e => update('disaggregated', e.target.value === 'separate')}><option value="combined">Combined prefill + decode</option><option value="separate">Separate prefill / decode pools</option></select></label>
+                {config.disaggregated && <>
+                  <label className="field">Prefill allocation<select value={config.prefillInstances} onChange={e => update('prefillInstances', +e.target.value)}>{Array.from({length: config.instances - 1}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} prefill · {config.instances - n} decode</option>)}</select></label>
+                  <label className="field">KV transfer network<select value={config.fabric} onChange={e => update('fabric', e.target.value)}>{deployments?.networks.map(n => <option key={n.id} value={n.id}>{n.label}</option>)}</select></label>
+                </>}
+              </div>
+              {config.disaggregated && <p className="feature-description">{config.prefillInstances} prefill + {config.instances - config.prefillInstances} decode = {config.instances} GPUs per side. One GPU per node; simultaneous KV transfers share bandwidth.</p>}
+            </fieldset>
+          </div>
+        </details>
         {result?.config.workload === 'agents' && <p className="session-note">{result.config.sessions} agents × {result.config.turns} turns. Same starting contexts and token content; each next turn waits for its own response + {result.config.thinkTimeMs} ms. Later arrivals can differ between sides.</p>}
         {viewConfig.disaggregated && <p className="session-note">Separate pools · {viewConfig.prefillInstances} prefill + {viewConfig.instances - viewConfig.prefillInstances} decode = {viewConfig.instances} GPUs on each side · {networkLabel}. Both strategies route within the same pool layout.</p>}
         {changed && <p className="changed-note" role="status">Settings changed. Run again to update the comparison below.</p>}
@@ -295,7 +296,7 @@ export function App() {
 
 type PresetOption<Value extends string> = {id:Value;label:string;description?:string;disabled?:boolean};
 
-function PresetPicker<Value extends string>({id,label,value,options,onChange,disabled,className=''}: {id:string;label:string;value:Value;options:PresetOption<Value>[];onChange:(value:Value)=>void;disabled:boolean;className?:string}) {
+function PresetPicker<Value extends string>({id,label,value,options,onChange,disabled,className='',compact=false}: {id:string;label:string;value:Value;options:PresetOption<Value>[];onChange:(value:Value)=>void;disabled:boolean;className?:string;compact?:boolean}) {
   const [open,setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -320,7 +321,7 @@ function PresetPicker<Value extends string>({id,label,value,options,onChange,dis
   }}>
     <button type="button" id={`${id}-trigger`} className="preset-trigger" ref={trigger} disabled={disabled} aria-label={`${label}: ${selected?.label ?? value}`} aria-expanded={open} aria-controls={`${id}-options`} onClick={()=>setOpen(v=>!v)} onKeyDown={event=>{
       if (event.key==='ArrowDown' || event.key==='ArrowUp') {event.preventDefault();setOpen(true);}
-    }}><span><strong>{selected?.label ?? value}</strong>{selected?.description && <span>{selected.description}</span>}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+    }}><span><strong>{selected?.label ?? value}</strong>{!compact && selected?.description && <span>{selected.description}</span>}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
     {open && <div id={`${id}-options`} className="preset-options preset-menu" role="group" aria-label={`${label} options`} onKeyDown={event=>{
       const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
       if (!buttons.length) return;
