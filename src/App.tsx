@@ -219,6 +219,7 @@ export function App() {
       </aside>
 
       <main>
+        <div className="main-scroll">
         <div className="page-heading"><div><h1>Compare inference routing</h1></div><button className="text-button export" disabled={!result || busy || !validTargets(targets)} onClick={download}><Icon name="download" />Export run</button></div>
         {error && <div className="error" role="alert"><strong>Couldn’t complete the comparison</strong><p>{error}</p></div>}
         <div className="comparison-context"><span className="verified-dot" /><span>{result ? `${workloadPresets[result.config.workload].label} · ${result.fairness.matchedRequests} matched requests · ${result.deployment.model.label} · ${result.config.instances} ${resultHardware} GPUs per side` : 'Matched requests, model, hardware, and engine settings'}</span><span className="synthetic-label">Synthetic workload</span></div>
@@ -238,16 +239,6 @@ export function App() {
           <Cluster title="Basic load balancing" description={viewConfig.disaggregated ? 'Random selection within each pool' : 'Random endpoint selection'} variant="basic" side={result?.basic} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.basic} time={time} selected={selected} onSelect={setSelected} />
           <Cluster title="llm-d routing" description={viewConfig.disaggregated ? 'Prefix cache and queue scoring' : 'In-flight load, queue, and cache scoring'} variant="llmd" side={result?.llmd} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.llmd} time={time} selected={selected} onSelect={setSelected} />
         </section>
-        <div className="playback-controls" aria-label="Simulation playback">
-          <button className="play-button" aria-label={playing ? 'Pause playback' : 'Play playback'} disabled={!result || busy} onClick={() => { if (time >= end) setTime(0); setPlaying(!playing); }}><Icon name={playing ? 'pause' : 'play'} /></button>
-          <button className="icon-button" aria-label="Restart playback" disabled={!result || busy} onClick={() => {setTime(0); setPlaying(false);}}><Icon name="reset" /></button>
-          <button className="icon-button" aria-label="Step forward 100 milliseconds" disabled={!result || busy} onClick={() => {setPlaying(false); setTime(t => Math.min(t + 100000, end));}}><Icon name="step" /></button>
-          <span className="clock">{(time / 1e6).toFixed(2)} <small>/ {result ? (end / 1e6).toFixed(2) : '0.00'} s</small></span>
-          <input type="range" aria-label="Simulation time" min="0" max={end} step="1000" value={time} disabled={!result || busy} onChange={e => {setPlaying(false); setTime(+e.target.value);}} />
-          <select aria-label="Playback speed" value={speed} onChange={e => setSpeed(+e.target.value)}>{[0.25,0.5,1,2,4].map(s => <option value={s} key={s}>{s}×</option>)}</select>
-          <span className="playback-caption">Simulated time</span>
-        </div>
-
         <section className="inspection-section" aria-labelledby="inspector-title">
           <div className="section-heading"><h2 id="inspector-title" ref={inspectorHeading} tabIndex={-1}>Inspect a request</h2><span>Select a request on either side to follow its path.</span></div>
           <div className="inspection-grid">
@@ -285,6 +276,18 @@ export function App() {
           <a href="https://github.com/inference-sim/inference-sim/blob/v0.12.0/docs/guide/routing.md" target="_blank" rel="noreferrer">Read the BLIS routing methodology ↗</a>
         </div></details>
         <footer>Built to explore tradeoffs. Validate promising configurations against your deployment.</footer>
+        </div>
+        {activeTab === 'simulation' && <div className="playback-dock">
+          <div className="playback-controls" role="group" aria-label="Simulation playback">
+            <button className="play-button" aria-label={playing ? 'Pause playback' : 'Play playback'} disabled={!result || busy} onClick={() => { if (time >= end) setTime(0); setPlaying(!playing); }}><Icon name={playing ? 'pause' : 'play'} /></button>
+            <button className="icon-button" aria-label="Restart playback" disabled={!result || busy} onClick={() => {setTime(0); setPlaying(false);}}><Icon name="reset" /></button>
+            <button className="icon-button" aria-label="Step forward 100 milliseconds" disabled={!result || busy} onClick={() => {setPlaying(false); setTime(t => Math.min(t + 100000, end));}}><Icon name="step" /></button>
+            <span className="clock">{(time / 1e6).toFixed(2)} <small>/ {result ? (end / 1e6).toFixed(2) : '0.00'} s</small></span>
+            <input type="range" aria-label="Simulation time" min="0" max={end} step="1000" value={time} disabled={!result || busy} onChange={e => {setPlaying(false); setTime(+e.target.value);}} />
+            <select aria-label="Playback speed" value={speed} onChange={e => setSpeed(+e.target.value)}>{[0.25,0.5,1,2,4].map(s => <option value={s} key={s}>{s}×</option>)}</select>
+            <span className="playback-caption">Simulated time</span>
+          </div>
+        </div>}
       </main>
     </div>
   </div>;

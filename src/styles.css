@@ -78,3 +78,14 @@
 @media(max-width:1180px){.settings{--settings-padding:18px}.settings-scroll{padding-top:25px}}
 @media(max-width:850px){.settings{--settings-padding:20px}.settings-scroll{padding-top:20px;padding-bottom:0}.settings-actions{position:sticky;bottom:0;z-index:11;display:flex;flex-direction:column;align-items:center}}
 @media(max-width:580px){.settings{--settings-padding:16px}}
+
+/* Reserve a playback footer so the simulation can scroll above its controls. */
+.workspace>main{--main-padding-x:32px;--main-padding-top:32px;padding:0}
+.main-scroll{min-width:0;padding:var(--main-padding-top) var(--main-padding-x) 22px}
+.playback-dock{flex-shrink:0;position:sticky;bottom:0;z-index:2;padding:12px var(--main-padding-x) calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:#f5f5f1}
+.playback-dock .playback-controls{margin:0}
+@media(min-width:851px){.workspace>main{display:flex;flex-direction:column;min-height:0;overflow:hidden}.main-scroll{flex:1;min-height:0;overflow-y:auto;overscroll-behavior-y:contain}}
+@media(min-width:1500px){.workspace>main{--main-padding-x:45px;--main-padding-top:35px}}
+@media(max-width:1180px){.workspace>main{--main-padding-x:20px;--main-padding-top:28px}}
+@media(max-width:850px){.workspace>main{--main-padding-top:25px}}
+@media(max-width:580px){.workspace>main{--main-padding-x:16px}}
