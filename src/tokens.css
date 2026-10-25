@@ -1,5 +1,49 @@
-/* Typography roles. Rem values follow the browser's default text size. */
+/* Shared visual tokens. Typography rem values follow the browser's text size. */
 :root {
+  /* Silver surfaces, charcoal type, and vermilion accents from the color reference. */
+  --color-canvas: #e7e8e6;
+  --color-surface: #ffffff;
+  --color-sidebar: #f4f5f3;
+  --color-surface-subtle: #f7f8f6;
+  --color-surface-hover: #eeefed;
+  --color-surface-active: #e3e5e2;
+  --color-text: #242729;
+  --color-text-muted: #60676a;
+  --color-text-secondary: #495155;
+  --color-border: #cbd0ce;
+  --color-border-subtle: #e3e6e3;
+  --color-border-control: #8b9396;
+  --color-border-hover: #666f72;
+  --color-accent: #bd3524;
+  --color-accent-hover: #a62c1c;
+  --color-accent-strong: #932919;
+  --color-accent-soft: #f8e9e4;
+  --color-on-accent: #ffffff;
+  --color-selection: #f1cfc6;
+  --color-basic: #535e63;
+  --color-success: #2f6950;
+  --color-success-soft: #eaf1eb;
+  --color-warning: #815b25;
+  --color-warning-soft: #f4eddf;
+  --color-queue: #b18440;
+  --color-info: #3b6579;
+  --color-error: #9c2934;
+  --color-error-soft: #faecee;
+  --color-error-border: #d6a2aa;
+  --color-scrollbar: #a6aeab;
+  --color-shadow: #2327291a;
+  --color-shadow-subtle: #2327290f;
+
+  /* Policy and component aliases keep the data colors consistent. */
+  --ink: var(--color-text);
+  --muted: var(--color-text-muted);
+  --line: var(--color-border);
+  --basic: var(--color-basic);
+  --llmd: var(--color-accent);
+  --queue: var(--color-queue);
+  --paper: var(--color-surface);
+  --wash: var(--color-accent-soft);
+
   --font-family-ui: 'IBM Plex Sans', sans-serif;
   --font-weight-regular: 400;
   --font-weight-medium: 500;

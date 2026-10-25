@@ -4,13 +4,19 @@ The comparison is a task interface for developers. Configuration stays on the le
 
 ## Visual decisions
 
-- Warm neutral workspace `#f5f5f1`, white working surfaces, graphite text `#222c30`.
-- Basic routing uses slate blue `#6379a8`; llm-d uses green `#177866`; queued requests use amber `#d8ad66`.
+- Silver workspace `#e7e8e6`, white working surfaces, and charcoal text `#242729`, drawn from the supplied silver-can color reference.
+- Vermilion `#bd3524` identifies the primary action, active selection, and llm-d routing. Basic routing uses charcoal `#535e63`; queued requests use amber `#b18440`.
 - IBM Plex Sans at 400, 500, and 600, self-hosted from the installed font package. Numeric data uses tabular figures.
 - Fine rules, restrained radii, dense legible controls, and color used to identify policy or state.
 - On narrow screens the configuration precedes vertically stacked policy views. Metrics remain a scrollable comparison table.
 - Model and GPU selectors share the workload fields' appearance. The chosen allocation is repeated below the controls; the comparison header and both policy cards use the completed run's recorded deployment.
 - Keyboard controls, visible focus, text labels alongside state colors, and reduced-motion support.
+
+## Color tokens
+
+`src/tokens.css` owns the palette. Use `--color-canvas`, `--color-surface`, and the sidebar/subtle/hover/active surface roles for the silver layers. Use the text and border roles for neutral content, and `--color-accent` with its hover, strong, and soft variants for actions and selection. Closed selectors use white surfaces; selected options use the soft accent.
+
+Policy aliases `--basic` and `--llmd` identify the two strategies throughout cards, request markers, and meters. Success, warning, information, and error colors have separate semantic tokens: vermilion identifies llm-d without implying a failed run. Status labels, numbers, and spatial grouping supplement every data color. The reference informs color only; the compact layout and IBM Plex typography remain.
 
 ## Typography tokens
 
