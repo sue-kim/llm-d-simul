@@ -17,6 +17,7 @@
     "test:deployments": "node scripts/verify-deployments.mjs",
     "test:workloads": "node scripts/verify-workloads.mjs",
     "test:disaggregation": "node scripts/verify-disaggregation.mjs",
+    "test:routing": "node scripts/verify-routing.mjs",
     "test:analysis": "node --experimental-strip-types --test scripts/analysis.test.mjs"
   },
   "dependencies": {
