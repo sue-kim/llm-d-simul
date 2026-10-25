@@ -10,6 +10,7 @@
   --color-text: #242729;
   --color-text-muted: #60676a;
   --color-text-secondary: #495155;
+  --color-text-label: var(--color-text-muted);
   --color-border: #cbd0ce;
   --color-border-subtle: #e3e6e3;
   --color-border-control: #8b9396;
@@ -48,6 +49,7 @@
   --font-weight-regular: 400;
   --font-weight-medium: 500;
   --font-weight-semibold: 600;
+  --font-weight-label: var(--font-weight-regular);
 
   --text-body: 0.875rem;
   --text-page-title: 1.875rem;

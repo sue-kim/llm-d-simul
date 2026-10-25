@@ -136,9 +136,14 @@
 }
 .settings :is(.field,.range-label,.workload-options>summary){
   font-size:var(--text-label);
-  font-weight:var(--font-weight-medium);
   line-height:var(--leading-control);
 }
+.settings :is(.field,.range-label){
+  font-weight:var(--font-weight-label);
+  color:var(--color-text-label);
+}
+.settings .workload-options>summary{font-weight:var(--font-weight-medium)}
+.settings :is(.preset-trigger,.preset-options button,.range-label strong){color:var(--ink)}
 .settings :is(.field input,.field select){
   font-size:var(--text-control);
   font-weight:var(--font-weight-regular);
