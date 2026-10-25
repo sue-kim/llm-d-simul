@@ -43,7 +43,7 @@ Playback changes the observation time, never simulation results. Full-run metric
 
 ## Minimal simulation panels
 
-Use flat instance rows with separate Queue and Running columns. Amber highlights nonempty queues; policy color identifies running counts. Avoid request-square grids, nested instance cards, decorative routing trees, and repeated legends. Selecting a count pauses playback and opens the full request list below the pools. Instance names expose active requests and sampled KV-cache usage. Selecting a request opens the paired inspector. Keep pool positions aligned across both sides as counts change, and use the shared typography and color tokens.
+Keep instances visible as compact GPU cards, following the user's preference for the earlier visualization. Give each card separate Queued and Running lanes, with up to eight request squares and an explicit overflow count. Amber identifies queued work; policy color identifies running work. Each square represents one recorded request, and the full lane is a generous click target that pauses playback and opens its request list. A subtle KV-cache meter uses sampled utilization. Highlight the selected request's instance and the source/destination of the featured KV transfer. Preserve the simple Prefill → KV transfer → Decode flow, aligned pool positions, shared typography, and one common legend. Individual request selection remains available in the request lists and paired inspector.
 
 ## Agent workloads
 

@@ -48,19 +48,34 @@ export function SimulationCluster({ title, description, variant, side, config, n
     setExpanded(previous => JSON.stringify(previous) === JSON.stringify(selection) ? undefined : selection);
   }
   const isExpanded = (id: string, kind: Selection['kind']) => expanded && 'instance' in expanded && expanded.instance === id && expanded.kind === kind;
-  const renderInstances = (poolIds: string[], name: string) => <table className="instance-table" aria-label={`${title}: ${name}`}>
-    <thead><tr><th scope="col">Instance</th><th scope="col">Queue</th><th scope="col">Running</th></tr></thead>
-    <tbody>{poolIds.map(id => {
+  const renderInstances = (poolIds: string[], name: string) => <div className={`instance-map ${poolIds.length === 1 ? 'single' : ''}`} role="group" aria-label={`${title}: ${name}`}>
+    {poolIds.map(id => {
       const events = current.filter(event => event.instanceId === id);
       const queue = events.filter(queued), active = events.filter(running);
       const containsSelected = [...queue, ...active].some(event => requestKey(event) === selected);
-      return <tr key={id} className={containsSelected ? 'contains-request' : ''}>
-        <th scope="row"><button type="button" className="instance-name" aria-expanded={!!isExpanded(id, 'all')} aria-controls={detailId} onClick={() => reveal({ instance: id, kind: 'all' })}>{instanceLabel(id)}</button></th>
-        <td><button type="button" className="instance-number queue-number" disabled={!queue.length} aria-label={`${instanceLabel(id)}: ${queue.length} queued requests`} aria-expanded={!!isExpanded(id, 'queue')} aria-controls={detailId} onClick={() => reveal({ instance: id, kind: 'queue' })}>{queue.length}</button></td>
-        <td><button type="button" className="instance-number running-number" disabled={!active.length} aria-label={`${instanceLabel(id)}: ${active.length} running requests`} aria-expanded={!!isExpanded(id, 'running')} aria-controls={detailId} onClick={() => reveal({ instance: id, kind: 'running' })}>{active.length}</button></td>
-      </tr>;
-    })}</tbody>
-  </table>;
+      const transferring = featuredTransfer && [featuredTransfer.prefillInstanceId, featuredTransfer.decodeInstanceId].includes(id);
+      const cache = Math.min(100, Math.max(0, (snapshot?.InstanceSnapshots.find(instance => instance.ID === id)?.KVUtilization ?? 0) * 100));
+      const renderActivity = (requests: Event[], kind: 'queue' | 'running') => {
+        const selectedRequest = requests.find(event => requestKey(event) === selected);
+        const shown = requests.slice(0, 8);
+        if (selectedRequest && !shown.includes(selectedRequest)) shown[shown.length - 1] = selectedRequest;
+        return <button type="button" className={`instance-activity ${kind}`} disabled={!requests.length} aria-label={`${instanceLabel(id)}: ${requests.length} ${kind === 'queue' ? 'queued' : 'running'} requests`} aria-expanded={!!isExpanded(id, kind)} aria-controls={detailId} onClick={() => reveal({ instance: id, kind })}>
+          <span className="activity-label"><span>{kind === 'queue' ? 'Queued' : 'Running'}</span><strong>{requests.length}</strong></span>
+          <span className="activity-markers" aria-hidden="true">{shown.map(event => <i key={event.requestId} className={requestKey(event) === selected ? 'selected-marker' : ''} />)}{requests.length > shown.length && <span>+{requests.length - shown.length}</span>}</span>
+        </button>;
+      };
+      return <div key={id} className={`instance-node ${containsSelected ? 'contains-request' : ''} ${transferring ? 'transfer-endpoint' : ''}`} role="group" aria-label={instanceLabel(id)}>
+        <button type="button" className="instance-name" aria-expanded={!!isExpanded(id, 'all')} aria-controls={detailId} onClick={() => reveal({ instance: id, kind: 'all' })}>
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" /><path d="M9 2v4m6-4v4M9 18v4m6-4v4M2 9h4m-4 6h4m12-6h4m-4 6h4" /><rect x="9" y="9" width="6" height="6" /></svg>
+          {instanceLabel(id)}
+        </button>
+        {renderActivity(queue, 'queue')}
+        {renderActivity(active, 'running')}
+        <div className="node-cache-label"><span>KV cache</span><span>{cache.toFixed(1)}%</span></div>
+        <div className="node-cache-meter" role="meter" aria-label={`${instanceLabel(id)} KV cache used`} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Number(cache.toFixed(1))}><span style={{ width: `${cache}%` }} /></div>
+      </div>;
+    })}
+  </div>;
 
   const expandedInstance = expanded && 'instance' in expanded ? expanded.instance : undefined;
   const detailEvents = !expanded ? [] : expanded.kind === 'transfers'

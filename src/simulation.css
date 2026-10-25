@@ -1,7 +1,8 @@
-/* Quiet, aligned pool rows. Request-level detail appears only on inspection. */
+/* Visual instances with separate request lanes and detail on inspection. */
 .cluster {
   --policy: var(--basic);
   min-width: 0;
+  container-type: inline-size;
   align-self: start;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -23,21 +24,30 @@
 .flow-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 24px; margin-bottom: 10px; }
 .flow-heading h3 { display: flex; align-items: center; gap: 6px; font-size: var(--text-panel-title); font-weight: var(--font-weight-medium); line-height: var(--leading-title); }
 .flow-heading > span { font-size: var(--text-help); color: var(--muted); }
-.instance-table { border-collapse: collapse; width: 100%; table-layout: fixed; font-size: var(--text-label); font-variant-numeric: tabular-nums; }
-.instance-table th, .instance-table td { padding: 0; text-align: right; font-weight: var(--font-weight-regular); }
-.instance-table th:first-child { text-align: left; width: 48%; }
-.instance-table thead th { color: var(--muted); font-size: var(--text-help); padding-bottom: 6px; }
-.instance-table thead th:not(:first-child) { padding-right: 8px; }
-.instance-table tbody tr { border-top: 1px solid var(--color-border-subtle); height: 40px; }
-.instance-name, .instance-number { border: 0; background: transparent; border-radius: 3px; min-height: 32px; font-size: var(--text-label); }
-.instance-name { padding: 4px 6px; margin-left: -6px; text-align: left; }
-.instance-number { min-width: 34px; padding: 4px 8px; font-weight: var(--font-weight-medium); }
-.instance-number:disabled { opacity: 1; color: var(--muted); cursor: default; }
-.queue-number:not(:disabled) { background: var(--color-warning-soft); color: var(--color-warning); }
-.running-number:not(:disabled) { color: var(--policy); }
-.instance-name:hover, .instance-number:hover:not(:disabled), .instance-number[aria-expanded=true] { background: var(--color-surface-hover); text-decoration: underline; text-underline-offset: 3px; }
-.queue-number:hover:not(:disabled), .queue-number[aria-expanded=true] { background: var(--color-warning-soft); }
-.contains-request .instance-name { font-weight: var(--font-weight-semibold); color: var(--policy); }
+.instance-map { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.instance-map.single { grid-template-columns: 1fr; }
+@container (max-width: 310px) { .instance-map { grid-template-columns: 1fr; } }
+.instance-node { min-width: 0; padding: 10px; border: 1px solid var(--line); border-radius: 5px; font-variant-numeric: tabular-nums; }
+.instance-node.contains-request, .instance-node.transfer-endpoint { border-color: var(--policy); }
+.instance-name { width: 100%; justify-content: flex-start; gap: 7px; min-height: 26px; margin-bottom: 3px; padding: 0; border: 0; border-radius: 3px; background: transparent; font-size: var(--text-label); font-weight: var(--font-weight-medium); text-align: left; }
+.instance-name svg { color: var(--muted); flex-shrink: 0; }
+.instance-name:hover { color: var(--policy); text-decoration: underline; text-underline-offset: 3px; }
+.contains-request .instance-name, .transfer-endpoint .instance-name svg { color: var(--policy); }
+.instance-activity { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 6px; width: 100%; min-height: 44px; padding: 5px 0; border: 0; border-radius: 3px; background: transparent; text-align: left; }
+.instance-activity:disabled { opacity: 1; cursor: default; }
+.instance-activity:hover:not(:disabled), .instance-activity[aria-expanded=true] { background: var(--color-surface-hover); }
+.activity-label { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; color: var(--muted); font-size: var(--text-help); line-height: var(--leading-control); }
+.activity-label strong { font-size: var(--text-label); font-weight: var(--font-weight-medium); }
+.instance-activity.queue:not(:disabled) strong { color: var(--color-warning); }
+.instance-activity.running:not(:disabled) strong { color: var(--policy); }
+.activity-markers { display: flex; align-items: center; gap: 3px; min-height: 12px; }
+.activity-markers i { width: 8px; height: 8px; flex-shrink: 0; background: var(--policy); border-radius: 1px; }
+.queue .activity-markers i { background: var(--color-queue); }
+.activity-markers i.selected-marker { outline: 1px solid var(--ink); outline-offset: 1px; }
+.activity-markers > span { margin-left: 2px; color: var(--muted); font-size: var(--text-caption); white-space: nowrap; }
+.node-cache-label { display: flex; justify-content: space-between; gap: 6px; margin-top: 8px; color: var(--muted); font-size: var(--text-caption); line-height: var(--leading-body); }
+.node-cache-meter { height: 3px; margin-top: 4px; background: var(--color-surface-active); overflow: hidden; border-radius: 1px; }
+.node-cache-meter > span { display: block; height: 100%; background: var(--policy); }
 .kv-handoff { margin: 14px 0; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .kv-handoff .flow-heading { margin-bottom: 6px; }
 .transfer-jump, .handoff-request, .pool-inspection-heading > button { border: 0; background: transparent; padding: 4px 0; color: var(--policy); font-size: var(--text-help); min-height: 28px; }
@@ -83,6 +93,7 @@
   .gpu-count { font-size: var(--text-caption); }
   .cluster-summary, .pool-inspection { margin-left: 16px; margin-right: 16px; }
   .cluster-flow { padding: 16px; }
-  .instance-table tbody tr { height: 44px; }
-  .instance-name, .instance-number, .transfer-jump, .handoff-counts button, .pool-request-list > button { min-height: 44px; }
+  .instance-name { min-height: 32px; }
+  .transfer-jump, .handoff-counts button, .pool-request-list > button { min-height: 44px; }
 }
+@media (max-width: 360px) { .activity-markers i { width: 6px; height: 6px; } }

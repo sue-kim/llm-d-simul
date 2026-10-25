@@ -239,7 +239,7 @@ export function App() {
           <SimulationCluster key={`basic-${result?.id ?? config.disaggregated}`} title="Basic load balancing" description={viewConfig.disaggregated ? 'Random selection within each pool' : 'Random endpoint selection'} variant="basic" side={result?.basic} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.basic} time={time} selected={selected} onSelect={inspectRequest} onPause={() => setPlaying(false)} />
           <SimulationCluster key={`llmd-${result?.id ?? config.disaggregated}`} title="llm-d routing" description={viewConfig.disaggregated ? 'Prefix cache and queue scoring' : 'In-flight load, queue, and cache scoring'} variant="llmd" side={result?.llmd} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.llmd} time={time} selected={selected} onSelect={inspectRequest} onPause={() => setPlaying(false)} />
         </section>
-        <p className="simulation-help">{result ? 'Select a count to pause and inspect requests.' : 'Run a comparison to follow requests through each instance.'}</p>
+        <p className="simulation-help">{result ? 'One square = one request. Select a lane or count to pause and inspect.' : 'Run a comparison to follow requests through each instance.'}</p>
         <section className="inspection-section" aria-labelledby="inspector-title">
           <div className="section-heading"><h2 id="inspector-title" ref={inspectorHeading} tabIndex={-1}>Inspect a request</h2><span>Select a request on either side to follow its path.</span></div>
           <div className="inspection-grid">
