@@ -1,4 +1,4 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Comparison, Config, DeploymentOptions, Event, Side, Transfer } from './types';
 import { assessComparison, defaultTargets, queueIntervals, validTargets } from './analysis';
 import type { PhaseComparison } from './analysis';
@@ -300,11 +300,45 @@ function PresetPicker<Value extends string>({id,label,value,options,onChange,dis
   const [open,setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const menu = useRef<HTMLDivElement>(null);
   const selected = options.find(option => option.id === value);
+  useLayoutEffect(() => {
+    if (!open || !trigger.current || !menu.current) return;
+    const content = menu.current;
+    const anchor = trigger.current.getBoundingClientRect();
+    const margin = 12, gap = 6;
+    content.style.width = `${Math.min(anchor.width, window.innerWidth - margin * 2)}px`;
+    // The top layer escapes the settings scroller and the fixed action footer.
+    content.showPopover();
+    const height = content.getBoundingClientRect().height;
+    const below = Math.max(0, window.innerHeight - anchor.bottom - gap - margin);
+    const above = Math.max(0, anchor.top - gap - margin);
+    const opensAbove = height > below && above > below;
+    const available = opensAbove ? above : below;
+    content.style.maxHeight = `${Math.min(window.innerHeight * 0.6, available)}px`;
+    content.style.left = `${Math.max(margin, Math.min(anchor.left, window.innerWidth - content.getBoundingClientRect().width - margin))}px`;
+    content.style.top = `${opensAbove ? anchor.top - gap - Math.min(height, available) : anchor.bottom + gap}px`;
+    const dismiss = (event: globalThis.Event) => {
+      if (event.target instanceof Node && content.contains(event.target)) return;
+      setOpen(false);
+    };
+    window.addEventListener('scroll', dismiss, true);
+    window.addEventListener('resize', dismiss);
+    return () => {
+      window.removeEventListener('scroll', dismiss, true);
+      window.removeEventListener('resize', dismiss);
+    };
+  }, [open]);
   useEffect(() => {
     if (!open) return;
-    const selectedButton = root.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]:not(:disabled)');
-    (selectedButton ?? root.current?.querySelector<HTMLButtonElement>('.preset-options button:not(:disabled)'))?.focus();
+    const selectedButton = menu.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]:not(:disabled)') ?? menu.current?.querySelector<HTMLButtonElement>('button:not(:disabled)');
+    selectedButton?.focus({preventScroll:true});
+    if (selectedButton && menu.current) {
+      const optionBounds = selectedButton.getBoundingClientRect();
+      const menuBounds = menu.current.getBoundingClientRect();
+      if (optionBounds.bottom > menuBounds.bottom) menu.current.scrollTop += optionBounds.bottom - menuBounds.bottom + 8;
+      else if (optionBounds.top < menuBounds.top) menu.current.scrollTop -= menuBounds.top - optionBounds.top + 8;
+    }
     const dismiss = (event: PointerEvent) => {
       if (event.target instanceof Node && !root.current?.contains(event.target)) setOpen(false);
     };
@@ -322,7 +356,7 @@ function PresetPicker<Value extends string>({id,label,value,options,onChange,dis
     <button type="button" id={`${id}-trigger`} className="preset-trigger" ref={trigger} disabled={disabled} aria-label={`${label}: ${selected?.label ?? value}`} aria-expanded={open} aria-controls={`${id}-options`} onClick={()=>setOpen(v=>!v)} onKeyDown={event=>{
       if (event.key==='ArrowDown' || event.key==='ArrowUp') {event.preventDefault();setOpen(true);}
     }}><span><strong>{selected?.label ?? value}</strong>{!compact && selected?.description && <span>{selected.description}</span>}</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
-    {open && <div id={`${id}-options`} className="preset-options preset-menu" role="group" aria-label={`${label} options`} onKeyDown={event=>{
+    {open && <div id={`${id}-options`} ref={menu} popover="manual" className="preset-options preset-menu" role="group" aria-label={`${label} options`} onKeyDown={event=>{
       const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('button:not(:disabled)'));
       if (!buttons.length) return;
       const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
