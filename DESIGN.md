@@ -34,7 +34,11 @@ Panel headings use `--leading-title` (1.3), controls and labels use `--leading-c
 
 ## Motion and data
 
-Request markers represent recorded requests. Playback changes the observation time, never simulation results. Full-run metrics do not animate or imply live accumulation. Large request populations show an explicit overflow count.
+Playback changes the observation time, never simulation results. Full-run metrics do not animate or imply live accumulation. Simulation counts come from recorded request states, with input preparation shown separately from instance queues.
+
+## Minimal simulation panels
+
+Use flat instance rows with separate Queue and Running columns. Amber highlights nonempty queues; policy color identifies running counts. Avoid request-square grids, nested instance cards, decorative routing trees, and repeated legends. Selecting a count pauses playback and opens the full request list below the pools. Instance names expose active requests and sampled KV-cache usage. Selecting a request opens the paired inspector. Keep pool positions aligned across both sides as counts change, and use the shared typography and color tokens.
 
 ## Agent workloads
 
@@ -42,7 +46,7 @@ Four workload presets share the same controls. Agent selection replaces request-
 
 ## Separate prefill/decode pools
 
-Keep one total GPU budget, split, and network control shared by both strategies. Group instance cards by prefill and decode with an intervening KV-transfer lane. Show in-transit and delivered counts, actual transfer progress, and a direct action to pause inside a transfer. Keep the sum of both pools visible on each side. Queue and finished counts describe parent requests; inspect both assignments, per-pool waits, capacity wait, and blocks pulled without exposing child IDs as extra user requests. Raw child records remain available in the export.
+Keep one total GPU budget, split, and network control shared by both strategies. Order the panel vertically: Prefill, KV transfer, Decode. The quiet handoff between pools shows in-transit counts separately from requests waiting for decode KV space, plus one active transfer's source, destination, and recorded progress. Prefer the selected request's transfer when it is active; expose all in-transit requests through the count. Preserve a direct action to pause inside the next transfer and replay after the run ends. Keep transfer details at a stable height so the decode rows align. Show the total GPU budget in each panel header and each pool's allocation beside its name. Queue and finished counts describe parent requests; inspect both assignments, per-pool waits, capacity wait, and blocks pulled without exposing child IDs as extra user requests. Raw child records remain available in the export.
 
 ## Latency targets and results summary
 

@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Comparison, Config, DeploymentOptions, Event, Side, Stage, Transfer } from './types';
+import type { Comparison, Config, DeploymentOptions, Event, Side, Transfer } from './types';
 import { assessComparison, defaultTargets, queueIntervals, validTargets } from './analysis';
 import type { PhaseComparison } from './analysis';
 import { ResultsSummary } from './ResultsSummary';
-import { formatMs, formatNumber, requestKey, requestLabel, requestStates, sessionDurations, snapshotAt } from './playback';
+import { SimulationCluster } from './SimulationCluster';
+import { eventLabel, instanceLabel, formatMs, formatNumber, requestKey, requestLabel, requestStates, sessionDurations } from './playback';
 
 const defaults: Config = { workload: 'chat', model: 'llama-3.1-8b-instruct', hardware: 'h100', instances: 4, disaggregated: false, prefillInstances: 2, fabric: 'ib-400g', requests: 256, rate: 40, inputTokens: 256, outputTokens: 256, prefixTokens: 512, seed: 42, sessions: 16, turns: 4, thinkTimeMs: 500, meanStartMs: 1000 };
 const workloadPresets = {
@@ -12,11 +13,6 @@ const workloadPresets = {
   code: {label: 'Code generation', description: 'Repository context, long outputs', inputTokens: 1024, outputTokens: 2048, prefixTokens: 2048, requests: 64, rate: 12},
   agents: {label: 'Multi-turn agents', description: 'Repeated context, sequential turns', inputTokens: 256, outputTokens: 256, prefixTokens: 1024, requests: 64, rate: 16},
 };
-const stageLabel: Record<Stage, string> = { arrived: 'Arrived', routed: 'Preparing input', queued: 'Queued', processing: 'Processing', streaming: 'Streaming', completed: 'Finished', preempted: 'Queued again', timed_out: 'Timed out', prefilling: 'Prefilling', kv_wait: 'Waiting for KV space', transferring: 'KV in transit', kv_transferred: 'KV received', decoding: 'Decoding', dropped: 'Dropped' };
-const eventLabel = (e: Event) => e.kind === 'queued' && e.phase ? `${e.phase === 'prefill' ? 'Prefill' : 'Decode'} queue` : stageLabel[e.kind];
-const instanceLabel = (id: string) => `Instance ${Number(id.match(/\d+$/)?.[0] ?? 0) + 1}`;
-const active = (e: Event) => ['processing', 'streaming', 'prefilling', 'decoding'].includes(e.kind);
-const waiting = (e: Event) => ['queued', 'preempted', 'kv_wait'].includes(e.kind);
 
 function Icon({ name, size = 18 }: { name: 'play' | 'pause' | 'reset' | 'step' | 'arrow' | 'download' | 'chip' | 'route'; size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -113,6 +109,11 @@ export function App() {
   function preset(workload: Config['workload']) {
     const {inputTokens, outputTokens, prefixTokens, requests, rate} = workloadPresets[workload];
     setConfig(c => ({...c, workload, inputTokens, outputTokens, prefixTokens, requests, rate, sessions: 16, turns: 4, thinkTimeMs: 500, meanStartMs: 1000}));
+  }
+  function inspectRequest(key: string) {
+    setSelected(key); setPlaying(false);
+    inspectorHeading.current?.focus({preventScroll: true});
+    inspectorHeading.current?.scrollIntoView({block: 'start'});
   }
   function inspectTransfer(side: Side, transfer: Transfer) {
     const request = side.playback.events.find(e => e.kind === 'arrived' && e.requestId === transfer.requestId);
@@ -237,9 +238,10 @@ export function App() {
         </div>
         <div id="simulation-panel" role="tabpanel" aria-labelledby="simulation-tab" hidden={activeTab !== 'simulation'} tabIndex={0}>
         <section className="comparison" aria-label="Side-by-side simulation">
-          <Cluster title="Basic load balancing" description={viewConfig.disaggregated ? 'Random selection within each pool' : 'Random endpoint selection'} variant="basic" side={result?.basic} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.basic} time={time} selected={selected} onSelect={setSelected} />
-          <Cluster title="llm-d routing" description={viewConfig.disaggregated ? 'Prefix cache and queue scoring' : 'In-flight load, queue, and cache scoring'} variant="llmd" side={result?.llmd} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.llmd} time={time} selected={selected} onSelect={setSelected} />
+          <SimulationCluster key={`basic-${result?.id ?? config.disaggregated}`} title="Basic load balancing" description={viewConfig.disaggregated ? 'Random selection within each pool' : 'Random endpoint selection'} variant="basic" side={result?.basic} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.basic} time={time} selected={selected} onSelect={inspectRequest} onPause={() => setPlaying(false)} />
+          <SimulationCluster key={`llmd-${result?.id ?? config.disaggregated}`} title="llm-d routing" description={viewConfig.disaggregated ? 'Prefix cache and queue scoring' : 'In-flight load, queue, and cache scoring'} variant="llmd" side={result?.llmd} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.llmd} time={time} selected={selected} onSelect={inspectRequest} onPause={() => setPlaying(false)} />
         </section>
+        <p className="simulation-help">{result ? 'Select a count to pause and inspect requests.' : 'Run a comparison to follow requests through each instance.'}</p>
         <section className="inspection-section" aria-labelledby="inspector-title">
           <div className="section-heading"><h2 id="inspector-title" ref={inspectorHeading} tabIndex={-1}>Inspect a request</h2><span>Select a request on either side to follow its path.</span></div>
           <div className="inspection-grid">
@@ -338,60 +340,6 @@ function NumberField({ label, value, min, max, onChange }: {label: string; value
   return <label className="field">{label}<input type="number" required value={value} min={min} max={max} step="1" onChange={e => onChange(e.target.value === '' ? 0 : +e.target.value)} /></label>;
 }
 function StageTag({event}: {event?: Event}) { return <span className={`stage ${event?.kind ?? 'pending'}`}>{event ? eventLabel(event) : 'Not arrived'}</span>; }
-
-function Cluster({title,description,variant,side,config,network,hardware,states,time,selected,onSelect,onTransfer}: {title:string;description:string;variant:string;side?:Side;config:Config;network:string;hardware:string;states:Map<string,Event>;time:number;selected:string;onSelect:(id:string)=>void;onTransfer:(side:Side,transfer:Transfer)=>void}) {
-  const snap = snapshotAt(side,time);
-  const current = [...states.values()];
-  const finished = current.filter(e => e.kind === 'completed').length;
-  const queued = current.filter(waiting).length;
-  const running = current.filter(active).length;
-  const ids = side?.playback.snapshots.at(-1)?.InstanceSnapshots.map(s=>s.ID) ?? Array.from({length:config.instances},(_,i)=>`instance_${i}`);
-  const role = (id: string) => side?.playback.pools?.[id] ?? (ids.indexOf(id) < config.prefillInstances ? 'prefill' : 'decode');
-  const renderInstances = (poolIds: string[]) => <div className={`instances ${poolIds.length === 1 ? 'single' : ''}`}>{poolIds.map(id=>{
-    const events=current.filter(e=>e.instanceId===id);
-    const q=events.filter(waiting), inFlight=events.filter(active);
-    const s=snap?.InstanceSnapshots.find(s=>s.ID===id);
-    const tokens=[...q,...inFlight];
-    return <div className={`instance ${tokens.some(e=>requestKey(e)===selected) ? 'has-selection' : ''}`} key={id}>
-      <div className="instance-heading"><Icon name="chip" size={17}/><strong>{instanceLabel(id)}</strong><span className={inFlight.length ? 'instance-active' : ''}>{inFlight.length ? 'Active' : 'Idle'}</span></div>
-      <div className="instance-counts"><span><b>{q.length}</b> waiting</span><span><b>{inFlight.length}</b> running</span></div>
-      <div className="request-dots" aria-label={`Requests on ${instanceLabel(id)}`}>{tokens.slice(0,30).map(e=><button key={e.requestId} className={`${waiting(e)?'dot-queued':'dot-active'} ${requestKey(e)===selected?'dot-selected':''}`} aria-label={`${requestLabel(e)}, ${eventLabel(e)}`} title={`${requestLabel(e)} · ${eventLabel(e)}`} onClick={()=>onSelect(requestKey(e))}/>)}{tokens.length>30&&<span className="more-dots">+{tokens.length-30}</span>}{!tokens.length&&<span className="no-requests">{side ? 'No active requests' : 'Ready for requests'}</span>}</div>
-      <div className="cache-label"><span>KV cache</span><span>{((s?.KVUtilization??0)*100).toFixed(1)}%</span></div><div className="cache-meter"><span style={{width:`${Math.min(100,(s?.KVUtilization??0)*100)}%`}} /></div>
-    </div>;
-  })}</div>;
-  return <article className={`cluster ${variant}`}>
-    <div className="cluster-title"><span className="policy-indicator" /><div><h2>{title}</h2><p>{description}</p></div><span className="gpu-count">{config.instances} × {hardware}</span></div>
-    <div className="cluster-summary"><span><strong>{queued}</strong> waiting</span><span><strong>{running}</strong> processing</span><span><strong>{finished}</strong> finished</span></div>
-    <div className="router"><Icon name="route" /><span>{variant === 'basic' ? 'Random picker' : 'llm-d endpoint picker'}</span><small>{states.size} received</small></div>
-    {config.disaggregated ? <>
-      <div className="pool-heading"><h3>Prefill pool</h3><span>{config.prefillInstances} GPUs · process input</span></div>
-      {renderInstances(ids.filter(id => role(id) === 'prefill'))}
-      <TransferLane side={side} time={time} network={network} selected={selected} onSelect={onSelect} onTransfer={onTransfer}/>
-      <div className="pool-heading"><h3>Decode pool</h3><span>{config.instances-config.prefillInstances} GPUs · generate output</span></div>
-      {renderInstances(ids.filter(id => role(id) === 'decode'))}
-      <p className="cluster-budget">{config.prefillInstances} prefill + {config.instances-config.prefillInstances} decode = <b>{config.instances} × {hardware}</b></p>
-    </> : <><div className="routing-lines" aria-hidden="true"><span /><span /></div>{renderInstances(ids)}</>}
-    <div className="cluster-legend"><span><i className="dot-queued" />Waiting</span><span><i className="dot-active" />Processing / streaming</span><small>One square = one request</small></div>
-  </article>;
-}
-
-function TransferLane({side,time,network,selected,onSelect,onTransfer}: {side?:Side;time:number;network:string;selected:string;onSelect:(id:string)=>void;onTransfer:(side:Side,transfer:Transfer)=>void}) {
-  const transfers = side?.playback.transfers ?? [];
-  const inTransit = transfers.filter(t => t.startUs <= time && time < t.endUs);
-  const next = transfers.find(t => t.startUs > time) ?? transfers[0];
-  const completed = transfers.filter(t => t.endUs <= time).length;
-  return <div className={`transfer-lane ${inTransit.length ? 'has-transfers' : ''}`}>
-    <div className="transfer-heading"><strong>↓ KV transfer</strong><span>{inTransit.length} in transit · {completed} delivered</span></div>
-    <div className="transfer-track" aria-label="KV transfers in progress">{inTransit.slice(0,4).map(t=>{
-      const request=side?.playback.events.find(e=>e.kind==='arrived' && e.requestId===t.requestId);
-      const progress=(time-t.startUs)/(t.endUs-t.startUs)*100;
-      return <button key={t.requestId} className={`transfer-token ${request && requestKey(request)===selected?'selected':''}`} onClick={()=>request && onSelect(requestKey(request))} title={`${instanceLabel(t.prefillInstanceId)} → ${instanceLabel(t.decodeInstanceId)} · ${t.pulledBlocks} KV blocks`}>
-        <span className="transfer-request"><b>{request?requestLabel(request):t.requestId}</b><em>{instanceLabel(t.prefillInstanceId)} → {instanceLabel(t.decodeInstanceId)} · {t.pulledBlocks} blocks</em></span><small>{formatMs((t.endUs-t.startUs)/1000)}</small><i style={{width:`${progress}%`}}/>
-      </button>;
-    })}{inTransit.length>4&&<span className="transfer-more">+{inTransit.length-4} transfers</span>}{!inTransit.length&&<span className="transfer-empty">{transfers.length && completed===transfers.length?'All KV transfers delivered':'KV moves here after prefill'}</span>}</div>
-    <div className="transfer-footer"><span>{network}</span><button type="button" disabled={!side || !next} onClick={()=>side && next && onTransfer(side,next)}>{next && next.startUs<=time?'Replay first transfer':'Inspect next transfer'} <span aria-hidden="true">↗</span></button></div>
-  </div>;
-}
 
 function Results({result}: {result?:Comparison}) {
   const basic=result?.basic.metrics,llmd=result?.llmd.metrics;

@@ -1,4 +1,8 @@
-import type { Event, Side, Snapshot } from './types';
+import type { Event, Side, Snapshot, Stage } from './types';
+
+const stageLabel: Record<Stage, string> = { arrived: 'Arrived', routed: 'Preparing input', queued: 'Queued', processing: 'Processing', streaming: 'Streaming', completed: 'Finished', preempted: 'Queued again', timed_out: 'Timed out', prefilling: 'Prefilling', kv_wait: 'Waiting for KV space', transferring: 'KV in transit', kv_transferred: 'KV received', decoding: 'Decoding', dropped: 'Dropped' };
+export const eventLabel = (e: Event) => e.kind === 'queued' && e.phase ? `${e.phase === 'prefill' ? 'Prefill' : 'Decode'} queue` : stageLabel[e.kind];
+export const instanceLabel = (id: string) => `Instance ${Number(id.match(/\d+$/)?.[0] ?? 0) + 1}`;
 
 export const requestKey = (event: Event) => event.sessionId ? `${event.sessionId}/turn/${event.roundIndex}` : event.requestId;
 export const requestLabel = (event: Event) => event.sessionId ? `Agent ${Number(event.clientId?.match(/\d+$/)?.[0] ?? 0) + 1} · Turn ${event.roundIndex + 1}` : event.requestId;
