@@ -33,18 +33,16 @@
 .instance-name svg { color: var(--muted); flex-shrink: 0; }
 .instance-name:hover { color: var(--policy); text-decoration: underline; text-underline-offset: 3px; }
 .contains-request .instance-name, .transfer-endpoint .instance-name svg { color: var(--policy); }
-.instance-activity { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 6px; width: 100%; min-height: 44px; padding: 5px 0; border: 0; border-radius: 3px; background: transparent; text-align: left; }
+.instance-activity { display: flex; flex-direction: column; align-items: stretch; justify-content: center; gap: 6px; width: 100%; min-height: 34px; padding: 5px 0; border: 0; border-radius: 3px; background: transparent; text-align: left; }
 .instance-activity:disabled { opacity: 1; cursor: default; }
 .instance-activity:hover:not(:disabled), .instance-activity[aria-expanded=true] { background: var(--color-surface-hover); }
 .activity-label { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; color: var(--muted); font-size: var(--text-help); line-height: var(--leading-control); }
 .activity-label strong { font-size: var(--text-label); font-weight: var(--font-weight-medium); }
 .instance-activity.queue:not(:disabled) strong { color: var(--color-warning); }
 .instance-activity.running:not(:disabled) strong { color: var(--policy); }
-.activity-markers { display: flex; align-items: center; gap: 3px; min-height: 12px; }
-.activity-markers i { width: 8px; height: 8px; flex-shrink: 0; background: var(--policy); border-radius: 1px; }
-.queue .activity-markers i { background: var(--color-queue); }
-.activity-markers i.selected-marker { outline: 1px solid var(--ink); outline-offset: 1px; }
-.activity-markers > span { margin-left: 2px; color: var(--muted); font-size: var(--text-caption); white-space: nowrap; }
+.activity-track { display: block; height: 5px; background: var(--color-surface-active); overflow: hidden; border-radius: 1px; }
+.activity-track > i { display: block; height: 100%; background: var(--policy); }
+.queue .activity-track > i { background: var(--color-queue); }
 .node-cache-label { display: flex; justify-content: space-between; gap: 6px; margin-top: 8px; color: var(--muted); font-size: var(--text-caption); line-height: var(--leading-body); }
 .node-cache-meter { height: 3px; margin-top: 4px; background: var(--color-surface-active); overflow: hidden; border-radius: 1px; }
 .node-cache-meter > span { display: block; height: 100%; background: var(--policy); }
@@ -96,4 +94,39 @@
   .instance-name { min-height: 32px; }
   .transfer-jump, .handoff-counts button, .pool-request-list > button { min-height: 44px; }
 }
-@media (max-width: 360px) { .activity-markers i { width: 6px; height: 6px; } }
+
+
+/* Compare recorded counts directly, using stable scales shared by both policies. */
+.live-comparison { margin-bottom: 20px; color: var(--color-text-secondary); }
+.live-comparison-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px 16px; margin-bottom: 8px; }
+.live-comparison-heading h3 { font-size: var(--text-control); font-weight: var(--font-weight-regular); }
+.live-comparison-heading h3 span { margin-left: 8px; color: var(--muted); font-size: var(--text-help); font-variant-numeric: tabular-nums; }
+.live-comparison-heading button { padding: 5px 0; min-height: 28px; border: 0; background: transparent; color: var(--llmd); font-size: var(--text-help); text-align: right; }
+.live-comparison-heading button:hover { text-decoration: underline; text-underline-offset: 3px; }
+.live-counts { width: 100%; table-layout: fixed; border-collapse: collapse; font-size: var(--text-label); font-variant-numeric: tabular-nums; }
+.live-counts th, .live-counts td { padding: 6px 12px; font-weight: var(--font-weight-regular); text-align: right; }
+.live-counts th:first-child { width: 100px; padding-left: 0; text-align: left; color: var(--muted); }
+.live-counts th:last-child, .live-counts td:last-child { width: 100px; padding-right: 0; }
+.live-counts thead th { padding-top: 0; font-size: var(--text-help); color: var(--muted); border-bottom: 1px solid var(--line); }
+.live-counts thead th:nth-child(2) { color: var(--basic); }
+.live-counts thead th:nth-child(3) { color: var(--llmd); }
+.count-bar-cell { display: flex; align-items: center; gap: 8px; }
+.count-bar-cell > span:last-child { min-width: 3ch; }
+.count-track { flex: 1; height: 6px; background: var(--color-surface-active); overflow: hidden; }
+.count-track i { display: block; height: 100%; background: var(--basic); }
+.llmd .count-track i { background: var(--llmd); }
+.count-same { color: var(--muted); font-size: var(--text-help); }
+.count-difference { color: var(--ink); font-size: var(--text-help); }
+.live-comparison-note, .live-comparison-help, .live-comparison-failures { font-size: var(--text-help); line-height: var(--leading-body); color: var(--muted); }
+.live-comparison-note { margin-top: 8px; }
+.live-comparison-help { margin-top: 4px; }
+.live-comparison-help p { margin-top: 6px; max-width: 75ch; }
+.live-comparison-failures { margin-top: 6px; color: var(--color-error); }
+@media (max-width: 580px) {
+  .live-comparison-heading { flex-wrap: wrap; }
+  .live-comparison-heading button { min-height: 36px; }
+  .live-counts th, .live-counts td { padding: 6px; }
+  .live-counts th:first-child { width: 76px; }
+  .live-counts th:last-child, .live-counts td:last-child { width: 78px; }
+  .count-bar-cell { gap: 4px; }
+}

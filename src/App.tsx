@@ -4,6 +4,8 @@ import { assessComparison, defaultTargets, queueIntervals, validTargets } from '
 import type { PhaseComparison } from './analysis';
 import { ResultsSummary } from './ResultsSummary';
 import { SimulationCluster } from './SimulationCluster';
+import { LiveComparison } from './LiveComparison';
+import { buildPlaybackComparison } from './comparisonPlayback';
 import { FieldLabel } from './FieldLabel';
 import { inputHelp } from './inputHelp';
 import { eventLabel, instanceLabel, formatMs, formatNumber, requestKey, requestLabel, requestStates, sessionDurations } from './playback';
@@ -140,6 +142,7 @@ export function App() {
   const allRequests = useMemo(() => result?.basic.playback.events.filter(e => e.kind === 'arrived') ?? [], [result]);
   const filtered = allRequests.filter(e => `${requestLabel(e)} ${e.requestId}`.toLowerCase().includes(search.toLowerCase()));
   const states = useMemo(() => ({ basic: requestStates(result?.basic.playback.events ?? [], time), llmd: requestStates(result?.llmd.playback.events ?? [], time) }), [result, time]);
+  const playbackComparison = useMemo(() => result ? buildPlaybackComparison(result) : undefined, [result]);
   const visibleRequests = filtered.slice(0, 24);
   const selectedEvent = allRequests.find(e => requestKey(e) === selected);
   const sessionTurns = selectedEvent?.sessionId ? allRequests.filter(e => e.sessionId === selectedEvent.sessionId).sort((a,b) => a.roundIndex-b.roundIndex) : [];
@@ -235,11 +238,12 @@ export function App() {
           }}>{tab === 'simulation' ? 'Simulation' : 'Results'}</button>)}
         </div>
         <div id="simulation-panel" role="tabpanel" aria-labelledby="simulation-tab" hidden={activeTab !== 'simulation'} tabIndex={0}>
+        {result && playbackComparison && <LiveComparison result={result} model={playbackComparison} time={time} onJump={timeUs => { setTime(timeUs); setPlaying(false); }} />}
         <section className="comparison" aria-label="Side-by-side simulation">
-          <SimulationCluster key={`basic-${result?.id ?? config.disaggregated}`} title="Basic load balancing" description={viewConfig.disaggregated ? 'Random selection within each pool' : 'Random endpoint selection'} variant="basic" side={result?.basic} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.basic} time={time} selected={selected} onSelect={inspectRequest} onPause={() => setPlaying(false)} />
-          <SimulationCluster key={`llmd-${result?.id ?? config.disaggregated}`} title="llm-d routing" description="In-flight load, queue, and cache scoring" variant="llmd" side={result?.llmd} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.llmd} time={time} selected={selected} onSelect={inspectRequest} onPause={() => setPlaying(false)} />
+          <SimulationCluster key={`basic-${result?.id ?? config.disaggregated}`} title="Basic load balancing" description={viewConfig.disaggregated ? 'Random selection within each pool' : 'Random endpoint selection'} variant="basic" side={result?.basic} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.basic} instanceScale={playbackComparison?.instanceScale ?? 1} time={time} selected={selected} onSelect={inspectRequest} onPause={() => setPlaying(false)} />
+          <SimulationCluster key={`llmd-${result?.id ?? config.disaggregated}`} title="llm-d routing" description="In-flight load, queue, and cache scoring" variant="llmd" side={result?.llmd} config={viewConfig} network={networkLabel} onTransfer={inspectTransfer} hardware={resultHardware} states={states.llmd} instanceScale={playbackComparison?.instanceScale ?? 1} time={time} selected={selected} onSelect={inspectRequest} onPause={() => setPlaying(false)} />
         </section>
-        <p className="simulation-help">{result ? 'One square = one request. Select a lane or count to pause and inspect.' : 'Run a comparison to follow requests through each instance.'}</p>
+        <p className="simulation-help">{result ? `Instance bars share a fixed 0–${playbackComparison?.instanceScale ?? 1} request scale. Select a lane or count to pause and inspect.` : 'Run a comparison to follow requests through each instance.'}</p>
         <section className="inspection-section" aria-labelledby="inspector-title">
           <div className="section-heading"><h2 id="inspector-title" ref={inspectorHeading} tabIndex={-1}>Inspect a request</h2><span>Select a request on either side to follow its path.</span></div>
           <div className="inspection-grid">

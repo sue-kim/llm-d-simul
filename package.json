@@ -18,7 +18,8 @@
     "test:workloads": "node scripts/verify-workloads.mjs",
     "test:disaggregation": "node scripts/verify-disaggregation.mjs",
     "test:routing": "node scripts/verify-routing.mjs",
-    "test:analysis": "node --experimental-strip-types --test scripts/analysis.test.mjs"
+    "test:analysis": "node --experimental-strip-types --test scripts/analysis.test.mjs",
+    "test:playback": "node --experimental-strip-types --test scripts/comparison-playback.test.mjs"
   },
   "dependencies": {
     "@fontsource/ibm-plex-sans": "^5.2.0",

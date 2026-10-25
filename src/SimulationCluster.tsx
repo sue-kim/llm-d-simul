@@ -1,14 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Config, Event, Side, Transfer } from './types';
 import { eventLabel, formatMs, instanceLabel, requestKey, requestLabel, snapshotAt } from './playback';
+import { isQueued as queued, isRunning as running } from './comparisonPlayback';
 
 type Selection = { instance: string; kind: 'queue' | 'running' | 'all' } | { kind: 'transfers' } | { kind: 'kv-wait' } | { kind: 'preparing' };
-const queued = (event: Event) => event.kind === 'queued' || event.kind === 'preempted';
-const running = (event: Event) => ['processing', 'streaming', 'prefilling', 'decoding'].includes(event.kind);
 
-export function SimulationCluster({ title, description, variant, side, config, network, hardware, states, time, selected, onSelect, onPause, onTransfer }: {
+export function SimulationCluster({ title, description, variant, side, config, network, hardware, states, time, selected, instanceScale, onSelect, onPause, onTransfer }: {
   title: string; description: string; variant: 'basic' | 'llmd'; side?: Side; config: Config;
-  network: string; hardware: string; states: Map<string, Event>; time: number; selected: string;
+  network: string; hardware: string; states: Map<string, Event>; time: number; selected: string; instanceScale: number;
   onSelect: (key: string) => void; onPause: () => void; onTransfer: (side: Side, transfer: Transfer) => void;
 }) {
   const [expanded, setExpanded] = useState<Selection>();
@@ -56,12 +55,9 @@ export function SimulationCluster({ title, description, variant, side, config, n
       const transferring = featuredTransfer && [featuredTransfer.prefillInstanceId, featuredTransfer.decodeInstanceId].includes(id);
       const cache = Math.min(100, Math.max(0, (snapshot?.InstanceSnapshots.find(instance => instance.ID === id)?.KVUtilization ?? 0) * 100));
       const renderActivity = (requests: Event[], kind: 'queue' | 'running') => {
-        const selectedRequest = requests.find(event => requestKey(event) === selected);
-        const shown = requests.slice(0, 8);
-        if (selectedRequest && !shown.includes(selectedRequest)) shown[shown.length - 1] = selectedRequest;
         return <button type="button" className={`instance-activity ${kind}`} disabled={!requests.length} aria-label={`${instanceLabel(id)}: ${requests.length} ${kind === 'queue' ? 'queued' : 'running'} requests`} aria-expanded={!!isExpanded(id, kind)} aria-controls={detailId} onClick={() => reveal({ instance: id, kind })}>
           <span className="activity-label"><span>{kind === 'queue' ? 'Queued' : 'Running'}</span><strong>{requests.length}</strong></span>
-          <span className="activity-markers" aria-hidden="true">{shown.map(event => <i key={event.requestId} className={requestKey(event) === selected ? 'selected-marker' : ''} />)}{requests.length > shown.length && <span>+{requests.length - shown.length}</span>}</span>
+          <span className="activity-track" aria-hidden="true"><i style={{ width: `${requests.length / Math.max(1, instanceScale) * 100}%` }} /></span>
         </button>;
       };
       return <div key={id} className={`instance-node ${containsSelected ? 'contains-request' : ''} ${transferring ? 'transfer-endpoint' : ''}`} role="group" aria-label={instanceLabel(id)}>
