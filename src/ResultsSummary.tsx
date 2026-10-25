@@ -2,6 +2,8 @@ import type { Comparison } from './types';
 import type { Assessment, LatencyTargets, PhaseComparison, TargetScore } from './analysis';
 import { phaseLabels, validTargets } from './analysis';
 import { formatMs } from './playback';
+import { FieldLabel } from './FieldLabel';
+import { inputHelp } from './inputHelp';
 
 const percent = (n: number) => `${n.toFixed(2).replace(/\.?0+$/, '')}%`;
 const difference = (n: number) => Math.abs(n)<0.1?'Within 0.1 ms':`${n>0?'+':'−'}${formatMs(Math.abs(n))}`;
@@ -19,9 +21,9 @@ export function ResultsSummary({result,targets,assessment,onTargets,onInspect}: 
   return <div className="results-summary">
     <div className="target-heading"><h3>Latency targets</h3><span>Reassess instantly · no simulation rerun</span></div>
     <div className="latency-targets">
-      <label className="field">First token within (ms)<input type="number" min="1" max="3600000" step="any" required value={targets.ttftMs || ''} onChange={e=>onTargets({...targets,ttftMs:e.target.valueAsNumber})} aria-invalid={!Number.isFinite(targets.ttftMs)||targets.ttftMs<1||targets.ttftMs>3600000}/></label>
-      <label className="field">Full response within (ms)<input type="number" min="1" max="3600000" step="any" required value={targets.responseMs || ''} onChange={e=>onTargets({...targets,responseMs:e.target.valueAsNumber})} aria-invalid={!Number.isFinite(targets.responseMs)||targets.responseMs<1||targets.responseMs>3600000}/></label>
-      <label className="field">Requests meeting both (%)<input type="number" min="1" max="100" step="any" required value={targets.requiredPercent || ''} onChange={e=>onTargets({...targets,requiredPercent:e.target.valueAsNumber})} aria-invalid={!Number.isFinite(targets.requiredPercent)||targets.requiredPercent<1||targets.requiredPercent>100}/></label>
+      <div className="field"><FieldLabel htmlFor="target-first-token" label="First token within (ms)" help={inputHelp.firstToken} /><input id="target-first-token" type="number" min="1" max="3600000" step="any" required value={targets.ttftMs || ''} onChange={e=>onTargets({...targets,ttftMs:e.target.valueAsNumber})} aria-invalid={!Number.isFinite(targets.ttftMs)||targets.ttftMs<1||targets.ttftMs>3600000}/></div>
+      <div className="field"><FieldLabel htmlFor="target-full-response" label="Full response within (ms)" help={inputHelp.fullResponse} /><input id="target-full-response" type="number" min="1" max="3600000" step="any" required value={targets.responseMs || ''} onChange={e=>onTargets({...targets,responseMs:e.target.valueAsNumber})} aria-invalid={!Number.isFinite(targets.responseMs)||targets.responseMs<1||targets.responseMs>3600000}/></div>
+      <div className="field"><FieldLabel htmlFor="target-share" label="Requests meeting both (%)" help={inputHelp.targetShare} /><input id="target-share" type="number" min="1" max="100" step="any" required value={targets.requiredPercent || ''} onChange={e=>onTargets({...targets,requiredPercent:e.target.valueAsNumber})} aria-invalid={!Number.isFinite(targets.requiredPercent)||targets.requiredPercent<1||targets.requiredPercent>100}/></div>
     </div>
     <p className="target-help">Example targets; edit them to match your needs. {result?.config.workload==='agents'?'Applies to each model call, not the entire agent session. ':''}Both time limits must be met by the same request. Failed, unfinished, and unmeasured requests count as misses.</p>
     {!valid && <p className="target-error" role="alert">Enter time limits from 1 to 3,600,000 ms and a percentage from 1 to 100.</p>}

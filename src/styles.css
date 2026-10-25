@@ -166,3 +166,12 @@
 }
 .settings .context-error{font-size:var(--text-label);line-height:var(--leading-body)}
 @media(max-width:580px){.settings .field input{font-size:var(--text-touch-input)}}
+
+/* Optional field explanations live in the top layer, clear of scrolling panels. */
+.field-label{display:inline-flex;align-items:center;gap:2px;min-width:0;line-height:var(--leading-control)}
+.field-help-button{width:16px;height:18px;flex-shrink:0;padding:0;border:0;border-radius:3px;background:transparent;color:var(--color-text-muted)}
+.field-help-button:hover,.field-help-button[aria-expanded=true]{color:var(--color-accent);background:var(--color-surface-hover)}
+.field-help-popover{position:fixed;inset:auto;margin:0;width:280px;max-width:calc(100vw - 24px);max-height:calc(100dvh - 24px);overflow:auto;padding:12px 14px;border:1px solid var(--line);border-radius:6px;background:var(--color-surface);color:var(--ink);box-shadow:0 5px 18px var(--color-shadow);font-family:var(--font-family-ui);font-size:var(--text-label);font-weight:var(--font-weight-regular);line-height:var(--leading-body);text-align:left}
+.field-help-popover>strong{display:block;font-size:var(--text-control);font-weight:var(--font-weight-medium);margin-bottom:5px}
+.field-help-popover>span{display:block;color:var(--color-text-secondary)}
+@media(max-width:580px){.field-help-button{width:24px;height:24px}}

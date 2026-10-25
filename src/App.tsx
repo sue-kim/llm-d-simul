@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Comparison, Config, DeploymentOptions, Event, Side, Transfer } from './types';
 import { assessComparison, defaultTargets, queueIntervals, validTargets } from './analysis';
 import type { PhaseComparison } from './analysis';
 import { ResultsSummary } from './ResultsSummary';
 import { SimulationCluster } from './SimulationCluster';
+import { FieldLabel } from './FieldLabel';
+import { inputHelp } from './inputHelp';
 import { eventLabel, instanceLabel, formatMs, formatNumber, requestKey, requestLabel, requestStates, sessionDurations } from './playback';
 
 const defaults: Config = { workload: 'chat', model: 'llama-3.1-8b-instruct', hardware: 'h100', instances: 4, disaggregated: false, prefillInstances: 2, fabric: 'ib-400g', requests: 256, rate: 40, inputTokens: 256, outputTokens: 256, prefixTokens: 512, seed: 42, sessions: 16, turns: 4, thinkTimeMs: 500, meanStartMs: 1000 };
@@ -154,31 +156,27 @@ export function App() {
           <fieldset disabled={busy || !ready}>
             <h2>Workload</h2>
             <PresetPicker id="workload" label="Workload" className="workload-picker" value={config.workload} options={(Object.keys(workloadPresets) as Config['workload'][]).map(id => ({id, ...workloadPresets[id]}))} onChange={preset} disabled={busy || !ready} />
-            <div className="paired-fields"><NumberField label={agents ? 'New input / turn' : 'Input tokens'} value={config.inputTokens} min={16} max={8192} onChange={v => update('inputTokens', v)} /><NumberField label={agents ? 'Output / turn' : 'Output tokens'} value={config.outputTokens} min={16} max={2048} onChange={v => update('outputTokens', v)} /></div>
+            <div className="paired-fields"><NumberField label={agents ? 'New input / turn' : 'Input tokens'} help={agents ? inputHelp.newInput : inputHelp.inputTokens} value={config.inputTokens} min={16} max={8192} onChange={v => update('inputTokens', v)} /><NumberField label={agents ? 'Output / turn' : 'Output tokens'} help={agents ? inputHelp.turnOutput : inputHelp.outputTokens} value={config.outputTokens} min={16} max={2048} onChange={v => update('outputTokens', v)} /></div>
             {agents ? <>
-              <div className="paired-fields"><NumberField label="Agent sessions" value={config.sessions} min={1} max={64} onChange={v => update('sessions', v)} /><NumberField label="Turns / session" value={config.turns} min={2} max={8} onChange={v => update('turns', v)} /></div>
+              <div className="paired-fields"><NumberField label="Agent sessions" help={inputHelp.sessions} value={config.sessions} min={1} max={64} onChange={v => update('sessions', v)} /><NumberField label="Turns / session" help={inputHelp.turns} value={config.turns} min={2} max={8} onChange={v => update('turns', v)} /></div>
               <p className="workload-note">{config.sessions * config.turns} requests · {config.sessions} independent sessions</p>
               {contextError && <p className="context-error" role="alert">Context could reach {contextBudget.toLocaleString()} tokens. Reduce turns or token lengths to stay within {(deployments?.contextLimit ?? 32768).toLocaleString()}.</p>}
             </> : <>
             <div className="traffic-setting">
-            <label className="range-label" htmlFor="traffic">Traffic <strong>{config.rate} <span>req/s</span></strong></label>
+            <div className="range-label"><FieldLabel htmlFor="traffic" label="Traffic" help={inputHelp.traffic} /><strong>{config.rate} <span>req/s</span></strong></div>
             <input id="traffic" type="range" min="1" max="300" value={config.rate} onChange={e => update('rate', +e.target.value)} />
             </div>
-            <NumberField label="Requests" value={config.requests} min={16} max={1024} onChange={v => update('requests', v)} />
+            <NumberField label="Requests" help={inputHelp.requests} value={config.requests} min={16} max={1024} onChange={v => update('requests', v)} />
             </>}
             <details className="workload-options" onInvalidCapture={event => { event.currentTarget.open = true; }}>
               <summary>More options</summary>
               <div>
-                <p className="options-help">Input and output tokens are averages; each request varies around them.</p>
-                <NumberField label={agents ? 'Initial context tokens' : 'Shared prefix tokens'} value={config.prefixTokens} min={0} max={4096} onChange={v => update('prefixTokens', v)} />
-                <p className="field-help">{agents ? 'Unique to each agent. Prior inputs and outputs accumulate across its turns.' : 'Added to each input. Models a shared system prompt or document context.'}</p>
+                <NumberField label={agents ? 'Initial context tokens' : 'Shared prefix tokens'} help={agents ? inputHelp.initialContext : inputHelp.prefix} value={config.prefixTokens} min={0} max={4096} onChange={v => update('prefixTokens', v)} />
                 {agents && <>
-                  <NumberField label="Pause between turns (ms)" value={config.thinkTimeMs} min={0} max={5000} onChange={v => update('thinkTimeMs', v)} />
-                  <p className="field-help">Starts after the previous response finishes.</p>
-                  <NumberField label="Mean start delay (ms)" value={config.meanStartMs} min={10} max={30000} onChange={v => update('meanStartMs', v)} />
-                  <p className="field-help">Lower values bring agents online closer together.</p>
+                  <NumberField label="Pause between turns (ms)" help={inputHelp.pause} value={config.thinkTimeMs} min={0} max={5000} onChange={v => update('thinkTimeMs', v)} />
+                  <NumberField label="Mean start delay (ms)" help={inputHelp.startDelay} value={config.meanStartMs} min={10} max={30000} onChange={v => update('meanStartMs', v)} />
                 </>}
-                <NumberField label="Seed" value={config.seed} min={0} max={1000000} onChange={v => update('seed', v)} />
+                <NumberField label="Seed" help={inputHelp.seed} value={config.seed} min={0} max={1000000} onChange={v => update('seed', v)} />
               </div>
             </details>
             <div className="settings-divider" />
@@ -189,7 +187,7 @@ export function App() {
             <div className="gpu-setting">
               <div className="field"><label htmlFor="gpu-trigger">GPU</label><PresetPicker id="gpu" label="GPU" value={config.hardware} options={deployments ? deployments.hardware.map(hardware => ({...hardware, description: `${hardware.memoryGiB.toFixed(2)} GiB modeled memory`, disabled: !selectedModel?.hardwareIds.includes(hardware.id)})) : [{id: config.hardware, label: 'Loading GPUs…'}]} onChange={value => update('hardware', value)} disabled={busy || !ready} compact /></div>
             </div>
-            <div className="field"><label htmlFor="gpu-budget-trigger">GPUs per side</label><PresetPicker id="gpu-budget" label="GPUs per side" className="gpu-budget-picker" value={String(config.instances)} options={[2,3,4,5,6,7,8].map(n => ({id: String(n), label: `${n} GPUs · ${n} instances`}))} onChange={value => setConfig(c => ({...c, instances: +value, prefillInstances: Math.min(c.prefillInstances, +value - 1)}))} disabled={busy || !ready} /></div>
+            <div className="field"><FieldLabel htmlFor="gpu-budget-trigger" label="GPUs per side" help={inputHelp.gpuBudget} /><PresetPicker id="gpu-budget" label="GPUs per side" className="gpu-budget-picker" value={String(config.instances)} options={[2,3,4,5,6,7,8].map(n => ({id: String(n), label: `${n} GPUs · ${n} instances`}))} onChange={value => setConfig(c => ({...c, instances: +value, prefillInstances: Math.min(c.prefillInstances, +value - 1)}))} disabled={busy || !ready} /></div>
           </fieldset>
           </div>
           <div className="settings-actions">
@@ -215,10 +213,10 @@ export function App() {
               <legend>Shared prefill / decode pools</legend>
               <p className="feature-description">The same layout and total GPU budget apply to both sides.</p>
               <div className="pool-fields">
-                <label className="field">Processing layout<select value={config.disaggregated ? 'separate' : 'combined'} onChange={e => update('disaggregated', e.target.value === 'separate')}><option value="combined">Combined prefill + decode</option><option value="separate">Separate prefill / decode pools</option></select></label>
+                <div className="field"><FieldLabel htmlFor="processing-layout" label="Processing layout" help={inputHelp.layout} /><select id="processing-layout" value={config.disaggregated ? 'separate' : 'combined'} onChange={e => update('disaggregated', e.target.value === 'separate')}><option value="combined">Combined prefill + decode</option><option value="separate">Separate prefill / decode pools</option></select></div>
                 {config.disaggregated && <>
-                  <label className="field">Prefill allocation<select value={config.prefillInstances} onChange={e => update('prefillInstances', +e.target.value)}>{Array.from({length: config.instances - 1}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} prefill · {config.instances - n} decode</option>)}</select></label>
-                  <label className="field">KV transfer network<select value={config.fabric} onChange={e => update('fabric', e.target.value)}>{deployments?.networks.map(n => <option key={n.id} value={n.id}>{n.label}</option>)}</select></label>
+                  <div className="field"><FieldLabel htmlFor="prefill-allocation" label="Prefill allocation" help={inputHelp.prefill} /><select id="prefill-allocation" value={config.prefillInstances} onChange={e => update('prefillInstances', +e.target.value)}>{Array.from({length: config.instances - 1}, (_, i) => i + 1).map(n => <option key={n} value={n}>{n} prefill · {config.instances - n} decode</option>)}</select></div>
+                  <div className="field"><FieldLabel htmlFor="transfer-network" label="KV transfer network" help={inputHelp.network} /><select id="transfer-network" value={config.fabric} onChange={e => update('fabric', e.target.value)}>{deployments?.networks.map(n => <option key={n.id} value={n.id}>{n.label}</option>)}</select></div>
                 </>}
               </div>
               {config.disaggregated && <p className="feature-description">{config.prefillInstances} prefill + {config.instances - config.prefillInstances} decode = {config.instances} GPUs per side. One GPU per node; simultaneous KV transfers share bandwidth.</p>}
@@ -336,9 +334,11 @@ function PresetPicker<Value extends string>({id,label,value,options,onChange,dis
   </div>;
 }
 
-function NumberField({ label, value, min, max, onChange }: {label: string; value: number; min: number; max: number; onChange: (n: number) => void}) {
-  return <label className="field">{label}<input type="number" required value={value} min={min} max={max} step="1" onChange={e => onChange(e.target.value === '' ? 0 : +e.target.value)} /></label>;
+function NumberField({ label, help, value, min, max, onChange }: {label: string; help?: string; value: number; min: number; max: number; onChange: (n: number) => void}) {
+  const id = useId();
+  return <div className="field"><FieldLabel label={label} htmlFor={id} help={help} /><input id={id} type="number" required value={value} min={min} max={max} step="1" onChange={e => onChange(e.target.value === '' ? 0 : +e.target.value)} /></div>;
 }
+
 function StageTag({event}: {event?: Event}) { return <span className={`stage ${event?.kind ?? 'pending'}`}>{event ? eventLabel(event) : 'Not arrived'}</span>; }
 
 function Results({result}: {result?:Comparison}) {

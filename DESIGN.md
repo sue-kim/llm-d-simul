@@ -33,6 +33,10 @@ Policy aliases `--basic` and `--llmd` identify the two strategies throughout car
 
 Field labels use `--color-text-label` (muted gray) and regular `--font-weight-label`; entered values and selected options retain the primary text color. Panel headings use `--leading-title` (1.3), controls and labels use `--leading-control` (1.25), and supporting copy uses `--leading-body` (1.5). Keep sentence case and normal tracking. Size tokens use rem with a 100% root; body text uses `--text-body` (14px by default). On small screens, numeric inputs use `--text-touch-input` (16px by default). Existing control dimensions and focus targets remain independent of the type scale.
 
+## Field explanations
+
+Technical inputs use a small question-mark button beside their labels. Explanations define the setting and its effect in a few sentences; familiar selectors stay unadorned. `FieldLabel` provides the shared pattern and `inputHelp.ts` owns the copy. Help opens by click, tap, or keyboard activation in the native popover top layer so scrolling panels cannot clip it. Escape, outside click, scrolling, or resizing dismisses it. Field labels remain independent of the help button and retain their input association.
+
 ## Motion and data
 
 Playback changes the observation time, never simulation results. Full-run metrics do not animate or imply live accumulation. Simulation counts come from recorded request states, with input preparation shown separately from instance queues.
