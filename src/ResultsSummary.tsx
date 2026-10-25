@@ -19,23 +19,39 @@ export function ResultsSummary({result,targets,assessment,onTargets,onInspect}: 
   const valid=validTargets(targets);
   const drivers=assessment?.phases.filter(p=>Math.abs(p.deltaMs)>=0.1).sort((a,b)=>Math.abs(b.deltaMs)-Math.abs(a.deltaMs)).slice(0,2) ?? [];
   return <div className="results-summary">
-    <div className="target-heading"><h3>Latency targets</h3><span>Reassess instantly · no simulation rerun</span></div>
+    <div className="target-heading"><h3>Latency targets</h3><span>Updates without rerunning</span></div>
     <div className="latency-targets">
       <div className="field"><FieldLabel htmlFor="target-first-token" label="First token within (ms)" help={inputHelp.firstToken} /><input id="target-first-token" type="number" min="1" max="3600000" step="any" required value={targets.ttftMs || ''} onChange={e=>onTargets({...targets,ttftMs:e.target.valueAsNumber})} aria-invalid={!Number.isFinite(targets.ttftMs)||targets.ttftMs<1||targets.ttftMs>3600000}/></div>
       <div className="field"><FieldLabel htmlFor="target-full-response" label="Full response within (ms)" help={inputHelp.fullResponse} /><input id="target-full-response" type="number" min="1" max="3600000" step="any" required value={targets.responseMs || ''} onChange={e=>onTargets({...targets,responseMs:e.target.valueAsNumber})} aria-invalid={!Number.isFinite(targets.responseMs)||targets.responseMs<1||targets.responseMs>3600000}/></div>
       <div className="field"><FieldLabel htmlFor="target-share" label="Requests meeting both (%)" help={inputHelp.targetShare} /><input id="target-share" type="number" min="1" max="100" step="any" required value={targets.requiredPercent || ''} onChange={e=>onTargets({...targets,requiredPercent:e.target.valueAsNumber})} aria-invalid={!Number.isFinite(targets.requiredPercent)||targets.requiredPercent<1||targets.requiredPercent>100}/></div>
     </div>
-    <p className="target-help">Example targets; edit them to match your needs. {result?.config.workload==='agents'?'Applies to each model call, not the entire agent session. ':''}Both time limits must be met by the same request. Failed, unfinished, and unmeasured requests count as misses.</p>
+    <p className="target-help">Each request must meet both limits.{result?.config.workload==='agents'?' Assessed per model call, not per session.':''}</p>
     {!valid && <p className="target-error" role="alert">Enter time limits from 1 to 3,600,000 ms and a percentage from 1 to 100.</p>}
     {!result && valid && <p className="summary-empty">Run a comparison to assess workload fit and see where requests spend their time.</p>}
     {assessment && <>
-      <div className={`fit-verdict ${assessment.verdict}`} role="status"><strong>{titles[assessment.verdict]}</strong><p>{suggestions[assessment.verdict]} {Math.abs(assessment.coverageDeltaPoints)<0.005?'Both meet the limits for the same share of requests.':`llm-d changes the share meeting both limits by ${assessment.coverageDeltaPoints>0?'+':'−'}${Math.abs(assessment.coverageDeltaPoints).toFixed(2)} percentage points.`}</p></div>
-      <div className="fit-cards"><FitCard title="Basic routing" variant="basic" score={assessment.basic} targets={targets}/><FitCard title="llm-d routing" variant="llmd" score={assessment.llmd} targets={targets}/></div>
-      <p className="assessment-scope">Full-run simulated outcomes · {result?.config.workload==='agents'?'all planned turns, including any not emitted':'all offered requests'}. {Math.min(assessment.basic.total,assessment.llmd.total)<100?'Small sample: each request can materially change the percentage. ':''}These results describe this workload and configuration.</p>
-      <div className="latency-explanation">
-        <h3>What differs in this run</h3>
+      <div className="fit-verdict" role="status"><strong>{titles[assessment.verdict]}</strong>{Math.abs(assessment.coverageDeltaPoints)>=0.005 && <span>llm-d: {assessment.coverageDeltaPoints>0?'+':'−'}{Math.abs(assessment.coverageDeltaPoints).toFixed(2)} percentage points meeting both.</span>}</div>
+      <div className="fit-summary" aria-label="Requests meeting both targets">
+        <div className="fit-summary-heading"><span>Meeting both targets</span><span>{percent(targets.requiredPercent)} required</span></div>
+        <FitRow title="Basic routing" variant="basic" score={assessment.basic}/>
+        <FitRow title="llm-d routing" variant="llmd" score={assessment.llmd}/>
+      </div>
+      <details className="target-details"><summary>Target details</summary>
+        <div className="metrics-table"><table><thead><tr><th scope="col">Requests</th><th scope="col">Basic</th><th scope="col">llm-d</th></tr></thead><tbody>
+          <tr><th scope="row">First token ≤ {formatMs(targets.ttftMs)}</th><td>{assessment.basic.firstTokenWithin} / {assessment.basic.total}</td><td>{assessment.llmd.firstTokenWithin} / {assessment.llmd.total}</td></tr>
+          <tr><th scope="row">Full response ≤ {formatMs(targets.responseMs)}</th><td>{assessment.basic.responseWithin} / {assessment.basic.total}</td><td>{assessment.llmd.responseWithin} / {assessment.llmd.total}</td></tr>
+          <tr><th scope="row">Required to meet both</th><td>{Math.ceil(assessment.basic.total*targets.requiredPercent/100)}</td><td>{Math.ceil(assessment.llmd.total*targets.requiredPercent/100)}</td></tr>
+          <tr><th scope="row">Completed</th><td>{assessment.basic.completed}</td><td>{assessment.llmd.completed}</td></tr>
+          <tr><th scope="row">Failed / unfinished</th><td>{assessment.basic.failed} / {assessment.basic.unfinished}</td><td>{assessment.llmd.failed} / {assessment.llmd.unfinished}</td></tr>
+          {(assessment.basic.missingMeasurements>0 || assessment.llmd.missingMeasurements>0) && <tr><th scope="row">Completed without valid latency</th><td>{assessment.basic.missingMeasurements}</td><td>{assessment.llmd.missingMeasurements}</td></tr>}
+        </tbody></table></div>
+        <p>Failed, unfinished, and unmeasured requests count as misses. {suggestions[assessment.verdict]}</p>
+      </details>
+      <p className="assessment-scope">Simulated · {result?.config.workload==='agents'?'all planned model calls, including un-emitted turns':'all offered requests'}.{Math.min(assessment.basic.total,assessment.llmd.total)<100?' Small sample; percentages may vary substantially.':''}</p>
+      <details className="latency-explanation">
+        <summary>Why results differ{assessment.pairedCompleted>0 && <span>Mean first token {difference(assessment.meanTTFTDeltaMs!)} · response {difference(assessment.meanResponseDeltaMs!)}</span>}</summary>
+        <div className="latency-explanation-content">
         {assessment.pairedCompleted>0 ? <p>On {assessment.pairedCompleted} matched completed requests, llm-d changes mean first-token time by <b>{difference(assessment.meanTTFTDeltaMs!)}</b> and mean response time by <b>{difference(assessment.meanResponseDeltaMs!)}</b>.</p> : <p>No requests have valid completed latency records on both sides, so a matched timing explanation is unavailable.</p>}
-        {!!drivers.length && <div className="latency-drivers">{drivers.map(p=><div key={p.phase}><div><span>{p.label}</span><strong>{difference(p.deltaMs)} <small>per request with llm-d</small></strong></div>{p.evidence && <button onClick={()=>onInspect(p.evidence!)}>Inspect largest request gap ↗</button>}</div>)}</div>}
+        {!!drivers.length && <div className="latency-drivers">{drivers.map(p=><div key={p.phase}><span>{p.label}</span><strong>{difference(p.deltaMs)}</strong>{p.evidence && <button type="button" aria-label={`Inspect largest request gap: ${p.label}`} onClick={()=>onInspect(p.evidence!)}>Inspect request ↗</button>}</div>)}</div>}
         {drivers.some(p=>p.phase==='preparation') && <p>Input preparation includes render/tokenize work and waiting for endpoint admission, recorded together before the engine queue.</p>}
         {assessment.phases.length>0 && !drivers.length && <p>The recorded mean phase times differ by less than 0.1 ms each.</p>}
         {assessment.hotspots.map(h=><p className="queue-finding" key={h.policy}><b>{h.policy==='basic'?'Basic':'llm-d'} queue concentration:</b> {phaseLabels[h.phase]} on Instance {Number(h.instanceId.match(/\d+$/)?.[0] ?? 0)+1} has the most accumulated wait before first token: {formatMs(h.totalMs)} across {h.requests} requests ({formatMs(h.meanMs)} on average).</p>)}
@@ -47,18 +63,18 @@ export function ResultsSummary({result,targets,assessment,onTargets,onInspect}: 
           </> : <p>There are no complete paired timelines available for a reliable phase breakdown.</p>}
           {assessment.excludedBreakdowns>0 && <p>{assessment.excludedBreakdowns} matched requests lack a complete, consistent phase timeline and are excluded from this breakdown. Their measured latencies still count toward targets.</p>}
         </details>
-      </div>
+        </div>
+      </details>
     </>}
   </div>;
 }
 
-function FitCard({title,variant,score,targets}: {title:string;variant:string;score:TargetScore;targets:LatencyTargets}) {
-  return <div className={`fit-card ${variant}`}>
-    <div className="fit-card-heading"><h3>{title}</h3><span className={`fit-badge ${score.meets?'met':'missed'}`}>{score.meets?'Meets targets':'Below target'}</span></div>
-    <div className="fit-number"><strong>{percent(score.percent)}</strong><span>{score.bothWithin} / {score.total} requests meet both</span></div>
-    <div className="fit-meter" role="img" aria-label={`${percent(score.percent)} meet both limits; ${percent(targets.requiredPercent)} required`}><span style={{width:`${score.percent}%`}}/><i style={{left:`${targets.requiredPercent}%`}}/></div>
-    <p className="fit-required">Required: {percent(targets.requiredPercent)} · {Math.ceil(score.total*targets.requiredPercent/100)} requests</p>
-    <dl><div><dt>First token ≤ {formatMs(targets.ttftMs)}</dt><dd>{score.firstTokenWithin} / {score.total}</dd></div><div><dt>Full response ≤ {formatMs(targets.responseMs)}</dt><dd>{score.responseWithin} / {score.total}</dd></div></dl>
-    <p className="fit-outcomes">{score.completed} completed · {score.failed} failed · {score.unfinished} unfinished{score.missingMeasurements>0?` · ${score.missingMeasurements} completed without valid latency`:''}</p>
+function FitRow({title,variant,score}: {title:string;variant:string;score:TargetScore}) {
+  const exceptions = [score.failed>0?`${score.failed} failed`:'',score.unfinished>0?`${score.unfinished} unfinished`:'',score.missingMeasurements>0?`${score.missingMeasurements} unmeasured`:''].filter(Boolean);
+  return <div className={`fit-row ${variant}`}>
+    <h3>{title}</h3><strong className="fit-percent">{percent(score.percent)}</strong>
+    <span className="fit-count">{score.bothWithin} / {score.total} requests</span>
+    <span className={`fit-status ${score.meets?'met':'missed'}`}>{score.meets?'Meets targets':'Below target'}</span>
+    {!!exceptions.length && <p className="fit-exceptions">{exceptions.join(' · ')}</p>}
   </div>;
 }
