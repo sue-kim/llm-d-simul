@@ -188,7 +188,7 @@ export function App() {
             <div className="gpu-setting">
               <div className="field"><label htmlFor="gpu-trigger">GPU</label><PresetPicker id="gpu" label="GPU" value={config.hardware} options={deployments ? deployments.hardware.map(hardware => ({...hardware, description: `${hardware.memoryGiB.toFixed(2)} GiB modeled memory`, disabled: !selectedModel?.hardwareIds.includes(hardware.id)})) : [{id: config.hardware, label: 'Loading GPUs…'}]} onChange={value => update('hardware', value)} disabled={busy || !ready} compact /></div>
             </div>
-            <label className="field">GPUs per side<select value={config.instances} onChange={e => setConfig(c => ({...c, instances: +e.target.value, prefillInstances: Math.min(c.prefillInstances, +e.target.value - 1)}))}>{[2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n} GPUs · {n} instances</option>)}</select></label>
+            <div className="field"><label htmlFor="gpu-budget-trigger">GPUs per side</label><PresetPicker id="gpu-budget" label="GPUs per side" className="gpu-budget-picker" value={String(config.instances)} options={[2,3,4,5,6,7,8].map(n => ({id: String(n), label: `${n} GPUs · ${n} instances`}))} onChange={value => setConfig(c => ({...c, instances: +value, prefillInstances: Math.min(c.prefillInstances, +value - 1)}))} disabled={busy || !ready} /></div>
           </fieldset>
           </div>
           <div className="settings-actions">

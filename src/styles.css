@@ -51,6 +51,7 @@
 .preset-trigger{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%;padding:12px;border:1px solid #358171;border-radius:6px;background:#eaf2ed;text-align:left}
 .preset-trigger>span{display:flex;flex-direction:column;gap:3px;min-width:0}.preset-trigger strong{font-size:13px;font-weight:500}.preset-trigger>span>span{font-size:11px;color:#59675f;line-height:1.5}.preset-trigger>svg{flex-shrink:0;transition:transform .15s}.preset-trigger[aria-expanded=true]>svg{transform:rotate(180deg)}.preset-trigger:hover:not(:disabled){background:#e2ede5}
 .preset-options.preset-menu{position:absolute;z-index:10;top:calc(100% + 6px);left:0;right:0;display:flex;flex-direction:column;gap:6px;margin:0;padding:7px;border:1px solid var(--line);border-radius:7px;background:#fff;box-shadow:0 8px 24px #213f331a;max-height:60vh;overflow-y:auto}.preset-menu button{width:100%;flex-shrink:0;text-align:left}.preset-menu button:hover:disabled{background:#fff}
+.gpu-budget-picker .preset-options.preset-menu{top:auto;bottom:calc(100% + 6px)}
 
 .routing-feature p,.feature-description{font-size:12px;font-weight:400;line-height:1.6;color:#596960}
 
