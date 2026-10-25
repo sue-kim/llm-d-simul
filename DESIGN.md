@@ -27,11 +27,12 @@ Policy aliases `--basic` and `--llmd` identify the two strategies throughout car
 | Panel heading | 13px | 600 | `--text-panel-title` |
 | Field label | 12px | 400 | `--text-label`, `--font-weight-label` |
 | Disclosure | 12px | 500 | `--text-label` |
-| Input / selector / action | 13px | 400 for inputs, 500 for selectors and actions | `--text-control` |
+| Input / selector | 13px | 400 | `--text-control` |
+| Action | 13px | 500 | `--text-control` |
 | Helper text | 11px | 400 | `--text-help` |
 | Footer note | 10px | 400 | `--text-caption` |
 
-Field labels use `--color-text-label` (muted gray) and regular `--font-weight-label`; entered values and selected options retain the primary text color. Panel headings use `--leading-title` (1.3), controls and labels use `--leading-control` (1.25), and supporting copy uses `--leading-body` (1.5). Keep sentence case and normal tracking. Size tokens use rem with a 100% root; body text uses `--text-body` (14px by default). On small screens, numeric inputs use `--text-touch-input` (16px by default). Existing control dimensions and focus targets remain independent of the type scale.
+Field labels use `--color-text-label` (muted gray) and regular `--font-weight-label`; entered values, selected options, and dropdown menu items use regular weight and retain the primary text color. Panel headings use `--leading-title` (1.3), controls and labels use `--leading-control` (1.25), and supporting copy uses `--leading-body` (1.5). Keep sentence case and normal tracking. Size tokens use rem with a 100% root; body text uses `--text-body` (14px by default). On small screens, numeric inputs use `--text-touch-input` (16px by default). Existing control dimensions and focus targets remain independent of the type scale.
 
 ## Field explanations
 
