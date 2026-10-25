@@ -12,6 +12,20 @@ The comparison is a task interface for developers. Configuration stays on the le
 - Model and GPU selectors share the workload fields' appearance. The chosen allocation is repeated below the controls; the comparison header and both policy cards use the completed run's recorded deployment.
 - Keyboard controls, visible focus, text labels alongside state colors, and reduced-motion support.
 
+## Typography tokens
+
+`src/tokens.css` defines the shared font family, weights, semantic sizes, and line heights. Base text, general headings, and the settings panel consume these tokens in `src/styles.css`. Choose a token by the text's role when adding or adjusting controls.
+
+| Settings role | Size at the default browser setting | Weight | Token |
+| --- | --- | --- | --- |
+| Panel heading | 13px | 600 | `--text-panel-title` |
+| Field label / disclosure | 12px | 500 | `--text-label` |
+| Input / selector / action | 13px | 400 for inputs, 500 for selectors and actions | `--text-control` |
+| Helper text | 11px | 400 | `--text-help` |
+| Footer note | 10px | 400 | `--text-caption` |
+
+Panel headings use `--leading-title` (1.3), controls and labels use `--leading-control` (1.25), and supporting copy uses `--leading-body` (1.5). Keep sentence case and normal tracking. Size tokens use rem with a 100% root; body text uses `--text-body` (14px by default). On small screens, numeric inputs use `--text-touch-input` (16px by default). Existing control dimensions and focus targets remain independent of the type scale.
+
 ## Motion and data
 
 Request markers represent recorded requests. Playback changes the observation time, never simulation results. Full-run metrics do not animate or imply live accumulation. Large request populations show an explicit overflow count.

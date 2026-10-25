@@ -1,0 +1,22 @@
+/* Typography roles. Rem values follow the browser's default text size. */
+:root {
+  --font-family-ui: 'IBM Plex Sans', sans-serif;
+  --font-weight-regular: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+
+  --text-body: 0.875rem;
+  --text-page-title: 1.875rem;
+  --text-section-title: 1.0625rem;
+  --text-subheading: 0.9375rem;
+  --text-panel-title: 0.8125rem;
+  --text-label: 0.75rem;
+  --text-control: 0.8125rem;
+  --text-help: 0.6875rem;
+  --text-caption: 0.625rem;
+  --text-touch-input: 1rem;
+
+  --leading-title: 1.3;
+  --leading-control: 1.25;
+  --leading-body: 1.5;
+}
