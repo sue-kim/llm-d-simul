@@ -16,7 +16,7 @@ The comparison is a task interface for developers. Configuration stays on the le
 
 `src/tokens.css` owns the palette. Use `--color-canvas`, `--color-surface`, and the sidebar/subtle/hover/active surface roles for the silver layers. Use the text and border roles for neutral content, and `--color-accent` with its hover, strong, and soft variants for actions and selection. Closed selectors use white surfaces; selected options use the soft accent.
 
-Policy aliases `--basic` and `--llmd` identify the two strategies throughout cards, request markers, and meters. Success, warning, information, and error colors have separate semantic tokens: vermilion identifies llm-d without implying a failed run. Status labels, numbers, and spatial grouping supplement every data color. The reference informs color only; the compact layout and IBM Plex typography remain.
+Policy aliases `--basic` and `--llmd` identify the two strategies throughout cards, request markers, and meters. Success states use charcoal text and neutral silver fills, with no green accents. Warning, information, and error colors retain separate semantic tokens: vermilion identifies llm-d without implying a failed run. Status labels, numbers, and spatial grouping supplement every data color. The reference informs color only; the compact layout and IBM Plex typography remain.
 
 ## Typography tokens
 

@@ -22,8 +22,8 @@
   --color-on-accent: #ffffff;
   --color-selection: #f1cfc6;
   --color-basic: #535e63;
-  --color-success: #2f6950;
-  --color-success-soft: #eaf1eb;
+  --color-success: var(--color-text-secondary);
+  --color-success-soft: var(--color-surface-hover);
   --color-warning: #815b25;
   --color-warning-soft: #f4eddf;
   --color-queue: #b18440;
