@@ -4,10 +4,12 @@ import { eventLabel, formatMs, instanceLabel, requestKey, requestLabel, snapshot
 import { isQueued as queued, isRunning as running } from './comparisonPlayback';
 
 type Selection = { instance: string; kind: 'queue' | 'running' | 'all' } | { kind: 'transfers' } | { kind: 'kv-wait' } | { kind: 'preparing' };
+export type PoolSection = 'prefill' | 'decode' | 'combined' | 'transfer';
 
-export function SimulationCluster({ title, description, variant, side, config, network, hardware, states, time, selected, instanceScale, onSelect, onPause, onTransfer }: {
+export function SimulationCluster({ title, description, variant, side, config, network, hardware, states, time, selected, instanceScale, idleSections, openSections, onToggleSection, onSelect, onPause, onTransfer }: {
   title: string; description: string; variant: 'basic' | 'llmd'; side?: Side; config: Config;
   network: string; hardware: string; states: Map<string, Event>; time: number; selected: string; instanceScale: number;
+  idleSections: Record<PoolSection, boolean>; openSections: Partial<Record<PoolSection, boolean>>; onToggleSection: (section: PoolSection) => void;
   onSelect: (key: string) => void; onPause: () => void; onTransfer: (side: Side, transfer: Transfer) => void;
 }) {
   const [expanded, setExpanded] = useState<Selection>();
@@ -40,6 +42,14 @@ export function SimulationCluster({ title, description, variant, side, config, n
   const finished = current.filter(event => event.kind === 'completed').length;
   const failed = current.filter(event => event.kind === 'timed_out' || event.kind === 'dropped').length;
   const detailId = `${variant}-pool-requests`;
+  const collapsed = (section: PoolSection) => idleSections[section] && !openSections[section];
+
+  function idleHeading(section: PoolSection, label: string, status: string) {
+    return <h3 className="idle-pool-heading"><button type="button" className="idle-pool-toggle" aria-expanded={!collapsed(section)} aria-controls={`${variant}-${section}-content`} aria-label={`${collapsed(section) ? 'Show' : 'Hide'} idle ${label} details`} onClick={() => onToggleSection(section)}>
+      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+      <span>{label}</span><span className="idle-pool-status">{status}</span>
+    </button></h3>;
+  }
 
   function reveal(selection: Selection) {
     onPause();
@@ -73,6 +83,12 @@ export function SimulationCluster({ title, description, variant, side, config, n
     })}
   </div>;
 
+  const renderPool = (section: Exclude<PoolSection, 'transfer'>, label: string, poolIds: string[], description: string) => <section className={`flow-pool ${collapsed(section) ? 'pool-collapsed' : ''}`} aria-label={section === 'combined' ? 'Combined instances' : `${label} pool`}>
+    <div className="flow-heading">{idleSections[section] ? idleHeading(section, label, `Idle · ${poolIds.length} GPUs`) : <><h3>{label}</h3><span>{description}</span></>}</div>
+    <div id={`${variant}-${section}-content`} hidden={collapsed(section)}>{renderInstances(poolIds, section === 'combined' ? 'Combined instances' : `${label} pool`)}</div>
+  </section>;
+  const transferJump = <button type="button" className="transfer-jump" disabled={!side || !nextTransfer} onClick={() => side && nextTransfer && onTransfer(side, nextTransfer)}>{nextTransfer && nextTransfer.startUs <= time ? 'Replay transfer' : 'View next transfer'}</button>;
+
   const expandedInstance = expanded && 'instance' in expanded ? expanded.instance : undefined;
   const detailEvents = !expanded ? [] : expanded.kind === 'transfers'
     ? inTransit.map(transferEvent).filter((event): event is Event => !!event)
@@ -87,12 +103,14 @@ export function SimulationCluster({ title, description, variant, side, config, n
     <div className="cluster-summary"><span><strong>{states.size}</strong> received</span><button type="button" disabled={!preparing.length} aria-expanded={expanded?.kind === 'preparing'} aria-controls={detailId} onClick={() => reveal({ kind: 'preparing' })}><strong>{preparing.length}</strong> preparing input</button><span><strong>{finished}</strong> finished</span>{failed > 0 && <span className="cluster-failed"><strong>{failed}</strong> failed</span>}</div>
     <div className="cluster-flow">
       {config.disaggregated ? <>
-        <section className="flow-pool" aria-label="Prefill pool"><div className="flow-heading"><h3>Prefill</h3><span>Read input · {config.prefillInstances} GPUs</span></div>{renderInstances(ids.filter(id => role(id) === 'prefill'), 'Prefill pool')}</section>
-        <section className="kv-handoff" aria-label="KV transfer">
-          <div className="flow-heading"><h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M12 3v17m-6-6 6 6 6-6" /></svg>KV transfer</h3><button type="button" className="transfer-jump" disabled={!side || !nextTransfer} onClick={() => side && nextTransfer && onTransfer(side, nextTransfer)}>{nextTransfer && nextTransfer.startUs <= time ? 'Replay transfer' : 'View next transfer'}</button></div>
+        {renderPool('prefill', 'Prefill', ids.filter(id => role(id) === 'prefill'), `Read input · ${config.prefillInstances} GPUs`)}
+        <section className={`kv-handoff ${collapsed('transfer') ? 'handoff-collapsed' : ''}`} aria-label="KV transfer">
+          <div className="flow-heading">{idleSections.transfer ? idleHeading('transfer', 'KV transfer', delivered ? `${delivered} delivered` : 'Idle') : <><h3><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="M12 3v17m-6-6 6 6 6-6" /></svg>KV transfer</h3>{transferJump}</>}</div>
+          <div id={`${variant}-transfer-content`} hidden={collapsed('transfer')}>
           <div className="handoff-counts">
             <button type="button" disabled={!inTransit.length} aria-expanded={expanded?.kind === 'transfers'} aria-controls={detailId} onClick={() => reveal({ kind: 'transfers' })}><strong>{inTransit.length}</strong> in transit</button>
             <button type="button" className="kv-wait-count" disabled={!waitingForSpace.length} aria-expanded={expanded?.kind === 'kv-wait'} aria-controls={detailId} onClick={() => reveal({ kind: 'kv-wait' })}><strong>{waitingForSpace.length}</strong> waiting for space</button>
+            {idleSections.transfer && transferJump}
           </div>
           <div className="handoff-preview">
             {featuredTransfer ? <>
@@ -102,9 +120,10 @@ export function SimulationCluster({ title, description, variant, side, config, n
             </> : <p className="handoff-idle">{!side ? 'KV context moves from prefill to decode.' : delivered === transfers.length && transfers.length > 0 ? 'All KV transfers delivered.' : waitingForSpace.length ? 'Waiting for space in the decode pool.' : 'No transfers at this moment.'}</p>}
           </div>
           <div className="handoff-meta"><span>{network}</span><span>{delivered} delivered</span></div>
+          </div>
         </section>
-        <section className="flow-pool" aria-label="Decode pool"><div className="flow-heading"><h3>Decode</h3><span>Generate output · {config.instances - config.prefillInstances} GPUs</span></div>{renderInstances(ids.filter(id => role(id) === 'decode'), 'Decode pool')}</section>
-      </> : <section className="flow-pool" aria-label="Combined instances"><div className="flow-heading"><h3>Instances</h3><span>Prefill + decode</span></div>{renderInstances(ids, 'Combined instances')}</section>}
+        {renderPool('decode', 'Decode', ids.filter(id => role(id) === 'decode'), `Generate output · ${config.instances - config.prefillInstances} GPUs`)}
+      </> : renderPool('combined', 'Instances', ids, 'Prefill + decode')}
     </div>
     <div id={detailId} className="pool-inspection" hidden={!expanded}>
       <div className="pool-inspection-heading"><h3 ref={detailHeading} tabIndex={-1}>{detailTitle}</h3><button type="button" onClick={() => { setExpanded(undefined); detailTrigger.current?.focus(); }} aria-label={`Close ${title} request list`}>Close</button></div>

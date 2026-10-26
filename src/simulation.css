@@ -24,6 +24,13 @@
 .flow-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 24px; margin-bottom: 10px; }
 .flow-heading h3 { display: flex; align-items: center; gap: 6px; font-size: var(--text-panel-title); font-weight: var(--font-weight-medium); line-height: var(--leading-title); }
 .flow-heading > span { font-size: var(--text-help); color: var(--muted); }
+.flow-heading .idle-pool-heading { width: 100%; }
+.idle-pool-toggle { width: 100%; min-height: 28px; justify-content: flex-start; gap: 6px; padding: 2px 0; border: 0; background: transparent; text-align: left; font-size: var(--text-label); font-weight: var(--font-weight-regular); }
+.idle-pool-toggle > svg { flex-shrink: 0; color: var(--muted); }
+.idle-pool-toggle[aria-expanded=true] > svg { transform: rotate(90deg); }
+.idle-pool-toggle:hover { color: var(--policy); }
+.idle-pool-status { margin-left: auto; color: var(--muted); font-size: var(--text-help); white-space: nowrap; }
+.pool-collapsed > .flow-heading, .handoff-collapsed > .flow-heading { margin-bottom: 0; }
 .instance-map { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .instance-map.single { grid-template-columns: 1fr; }
 @container (max-width: 310px) { .instance-map { grid-template-columns: 1fr; } }
@@ -48,6 +55,8 @@
 .node-cache-meter > span { display: block; height: 100%; background: var(--policy); }
 .kv-handoff { margin: 14px 0; padding: 12px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .kv-handoff .flow-heading { margin-bottom: 6px; }
+.kv-handoff.handoff-collapsed { margin: 8px 0 12px; padding: 5px 0; }
+.kv-handoff.handoff-collapsed .flow-heading { margin-bottom: 0; }
 .transfer-jump, .handoff-request, .pool-inspection-heading > button { border: 0; background: transparent; padding: 4px 0; color: var(--policy); font-size: var(--text-help); min-height: 28px; }
 .transfer-jump:hover:not(:disabled), .handoff-request:hover, .pool-inspection-heading > button:hover { text-decoration: underline; text-underline-offset: 3px; }
 .handoff-counts { display: flex; flex-wrap: wrap; gap: 6px 18px; }
